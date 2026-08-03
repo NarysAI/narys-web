@@ -1,6 +1,6 @@
 # NarysAI Repository
 
-Local, Git-backed catalog for AI-ready engineering drawings and PartCAD packages. It combines the NarysAI registry fork with an independent React interface and a FastAPI indexing/preview service.
+Local, Git-backed catalog for AI-ready engineering drawings and PartCAD packages. Public packages are canonical in [`NarysAI/PUB`](https://github.com/NarysAI/PUB); private packages are held in the private `NarysAI/indra` overlay.
 
 ## Start on Windows
 
@@ -14,7 +14,7 @@ docker compose up --build
 
 Open [http://localhost:3000/repository](http://localhost:3000/repository). The frontend proxies `/api` to the API container, so the same-origin health endpoint is available at [http://localhost:3000/api/v1/health](http://localhost:3000/api/v1/health). Host ports `3000` and `8001` bind to loopback only; the direct API docs remain available to the local owner at [http://localhost:8001/docs](http://localhost:8001/docs). Override `NARYS_WEB_PORT` or `NARYS_API_PORT` only when the corresponding loopback port is unavailable.
 
-The first start clones the index and every package referenced by it, including packages pinned to a Git revision and nested `partcad.yaml` files. This can take a few minutes. The normalized catalog is stored in SQLite; Git checkouts and generated GLB/PNG previews remain in the `narys-cache` Docker volume. Later starts reuse that data and do not clone packages again.
+The first start clones the index and packages and creates immutable commit-SHA snapshots. SQLite, checkouts, snapshots and previews are persisted below `./var`; the old named Docker volume is intentionally retained as a rollback backup.
 
 Object pages use readable PartCAD paths compatible with the public repository. For example:
 
@@ -24,11 +24,11 @@ http://localhost:3000/repository/part/electrical/battery/ego:battery-7_5
 
 The catalog is generated entirely from `NarysAI/narys-index`; it does not depend on the PartCAD.org backend.
 
-Every object page offers its original CAD source through the local NarysAI API. Every package page offers a ZIP containing the upstream-compatible `partcad.yaml`, models, scripts, and supporting files. The ZIP intentionally excludes `.git`; use the **Upstream** link on the package page when you want to clone the original repository, create a branch, and submit a pull request. NarysAI does not rewrite package paths or model geometry, so downloaded packages can be copied into other PartCAD projects without conversion.
+Public object and package links point to `NarysAI/PUB`. Private names are absent from guest catalog/search responses and private downloads use authenticated one-use tickets. NarysAI does not rewrite package paths or model geometry.
 
 ## Add a drawing package
 
-Create a Git repository containing a `partcad.yaml` and its source models:
+Create a directory in `../PUB` containing a `partcad.yaml` and its source models:
 
 ```yaml
 name: //pub/narysai/my-package
@@ -39,21 +39,39 @@ parts:
     desc: A manufacturable part.
 ```
 
-Then add an import to a `partcad.yaml` below the appropriate folder in [`NarysAI/narys-index`](https://github.com/NarysAI/narys-index):
+Then add an import below the matching folder in [`NarysAI/narys-index`](https://github.com/NarysAI/narys-index):
 
 ```yaml
 import:
   my-package:
     type: git
-    url: https://github.com/NarysAI/my-package.git
-    web: https://github.com/NarysAI/my-package
+    url: https://github.com/NarysAI/PUB.git
+    revision: main
+    relPath: narysai/my-package
 ```
 
 Commit and push the index change, then use **Оновити індекс** in the UI or call:
 
 ```powershell
-Invoke-RestMethod -Method Post http://localhost:3000/api/v1/catalog/refresh
+$key = Read-Host "Admin API key"
+Invoke-RestMethod -Method Post -Headers @{Authorization="Bearer $key"} http://localhost:3000/api/v1/catalog/refresh
 ```
+
+For a private package, place it below `../indra/packages/<project>/<package>` and register its relative path in `../indra/index/partcad.yaml`. The repository must remain private.
+
+## Access keys
+
+Bootstrap an administrator locally (the plaintext is printed only once):
+
+```powershell
+docker compose run --rm api python -m app.admin create-key --name owner --role admin
+```
+
+Paste the key into the site header. Keys remain only in tab memory. Admins can create User keys and inspect audit/sync activity at `/repository/admin`. Production deployments must terminate HTTPS before enabling private access.
+
+## Import and upstream export
+
+`tools/migrate_pub.py` materializes the official index into PUB, records SHA-256 provenance and rejects files over 100 MiB. `tools/export_upstream.py` prepares a package-only upstream branch and excludes `.narys-*` metadata; add `--create-pr` only when the branch is ready to publish.
 
 ## Development
 
@@ -78,4 +96,4 @@ git -C ../narys-index merge upstream/main
 git -C ../narys-index push origin main
 ```
 
-The NarysAI frontend is an independent implementation. It does not copy the unlicensed PartCAD.org website source or branding. Package ownership and licensing remain with each upstream maintainer.
+The NarysAI frontend is an independent implementation. Package ownership and licensing remain with each upstream maintainer; `license_status: unverified` is an explicit review warning, not a claim of NarysAI ownership.

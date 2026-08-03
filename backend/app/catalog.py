@@ -7,6 +7,7 @@ import shutil
 import sqlite3
 import subprocess
 import threading
+import tempfile
 import zipfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -62,7 +63,7 @@ def _run(*args: str, cwd: Path | None = None) -> None:
 
 
 class CatalogService:
-    def __init__(self, index_url: str, index_ref: str, cache_dir: Path):
+    def __init__(self, index_url: str, index_ref: str, cache_dir: Path, private_repo_dir: Path | None = None):
         self.index_url = index_url
         self.index_ref = index_ref
         self.cache_dir = cache_dir
@@ -70,10 +71,12 @@ class CatalogService:
         self.package_dir = cache_dir / "packages"
         self.preview_dir = cache_dir / "previews"
         self.database_path = cache_dir / "catalog.sqlite3"
+        self.private_repo_dir = private_repo_dir
         self._packages: dict[str, Package] = {}
         self._objects: dict[str, CatalogObject] = {}
         self._object_roots: dict[str, Path] = {}
         self._lock = threading.RLock()
+        self._updated_checkouts: set[Path] = set()
         for directory in (cache_dir, self.package_dir, self.preview_dir):
             directory.mkdir(parents=True, exist_ok=True)
         self._init_database()
@@ -87,13 +90,58 @@ class CatalogService:
     def objects(self) -> list[CatalogObject]:
         return sorted(self._objects.values(), key=lambda item: (item.package_path, item.kind, item.name))
 
+    @staticmethod
+    def _is_private_path(path: str) -> bool:
+        return path == "//private" or path.startswith("//private/")
+
+    def _package_payload(self, package: Package) -> dict[str, Any]:
+        private = self._is_private_path(package.path)
+        return {
+            **asdict(package),
+            "namespace": "//private" if private else "//pub",
+            "visibility": "private" if private else "public",
+            "repository": "indra" if private else "PUB",
+            "git_commit": package.revision or "main",
+            "upstream_url": package.source_url,
+            "license_status": "unverified",
+        }
+
+    def _object_payload(self, item: CatalogObject) -> dict[str, Any]:
+        private = self._is_private_path(item.package_path)
+        source = self._object_roots.get(item.id)
+        file_path = (source / item.source_path).resolve() if source and item.source_path else None
+        checksum = None
+        size = None
+        if file_path and file_path.is_file() and file_path.is_relative_to(source.resolve()):
+            size = file_path.stat().st_size
+            digest = hashlib.sha256()
+            with file_path.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            checksum = digest.hexdigest()
+        package_relative = item.package_path.removeprefix("//pub/").removeprefix("//private/")
+        return {
+            **asdict(item),
+            "namespace": "//private" if private else "//pub",
+            "visibility": "private" if private else "public",
+            "repository": "indra" if private else "PUB",
+            "git_path": "/".join(filter(None, (package_relative, item.source_path))),
+            "git_commit": "main",
+            "upstream_url": item.source_url,
+            "checksum": checksum,
+            "size": size,
+            "license_status": "verified" if item.license else "unverified",
+        }
+
     def refresh(self) -> dict[str, int]:
         with self._lock:
+            self._updated_checkouts.clear()
             self._sync_index()
             self._packages.clear()
             self._objects.clear()
             self._object_roots.clear()
             self._read_index()
+            self._read_private_index()
             root_packages = list(self.packages)
         errors = 0
         for package in root_packages:
@@ -209,19 +257,57 @@ class CatalogService:
                     category=relative.parts[0] if relative.parts else "root",
                 )
 
+    def _read_private_index(self) -> None:
+        if not self.private_repo_dir:
+            return
+        config_path = self.private_repo_dir / "index" / "partcad.yaml"
+        if not config_path.is_file():
+            return
+        data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+        imports = data.get("import", {})
+        if not isinstance(imports, dict):
+            return
+        for name, spec in imports.items():
+            if not isinstance(spec, dict) or not spec.get("path"):
+                continue
+            relative = str(spec["path"]).strip("/")
+            package_path = f"//private/{relative}"
+            package_id = _token(package_path)
+            self._packages[package_id] = Package(
+                id=package_id,
+                path=package_path,
+                name=str(name),
+                description=str(spec.get("desc", "Private NarysAI package")),
+                source_url=self.private_repo_dir.as_uri(),
+                rel_path=relative,
+                revision="main",
+                category="private",
+            )
+
     def load_package(self, package_id: str) -> dict[str, Any]:
         with self._lock:
             package = self._packages.get(package_id)
             if not package:
                 raise KeyError(package_id)
         checkout_key = f"{package.source_url}@{package.revision or 'HEAD'}"
-        checkout = self.package_dir / hashlib.sha256(checkout_key.encode()).hexdigest()[:16]
-        if not (checkout / ".git").exists():
+        local_repository = package.source_url.startswith("file://")
+        checkout = Path(package.source_url.removeprefix("file://")) if local_repository else self.package_dir / hashlib.sha256(checkout_key.encode()).hexdigest()[:16]
+        if not local_repository and not (checkout / ".git").exists():
+            temporary = Path(tempfile.mkdtemp(prefix=f".{checkout.name}-", dir=self.package_dir))
+            shutil.rmtree(temporary)
             clone_args = ["git", "clone", "--depth", "1"]
             if package.revision:
                 clone_args.extend(["--branch", package.revision])
-            clone_args.extend([package.source_url, str(checkout)])
+            clone_args.extend([package.source_url, str(temporary)])
             _run(*clone_args)
+            try:
+                temporary.rename(checkout)
+            except FileExistsError:
+                shutil.rmtree(temporary, ignore_errors=True)
+        if not local_repository and checkout not in self._updated_checkouts:
+            _run("git", "fetch", "origin", package.revision or "HEAD", cwd=checkout)
+            _run("git", "reset", "--hard", "FETCH_HEAD", cwd=checkout)
+            self._updated_checkouts.add(checkout)
         requested_path = checkout / package.rel_path if package.rel_path else checkout
         if requested_path.is_file():
             config_path = requested_path
@@ -270,7 +356,9 @@ class CatalogService:
                     self._packages[nested_id] = current_package
                 self._register_objects(current_package, current_root, data)
                 current_package.status = "loaded"
-            return self.package_detail(package_id)
+            # Refresh callers only need the package loaded. Building a full payload
+            # here would re-hash every CAD file once per root package.
+            return self._package_payload(package)
 
     @staticmethod
     def _load_package_yaml(config_path: Path) -> dict[str, Any]:
@@ -323,50 +411,63 @@ class CatalogService:
                     source_type=source_type,
                     source_path=str(source_path) if source_path else None,
                     source_url=package.web_url or package.source_url.removesuffix(".git"),
-                    semantic_path=f"{package.path.removeprefix('//pub/')}:{name}",
+                    semantic_path=f"{package.path.removeprefix('//pub/') if not self._is_private_path(package.path) else package.path.removeprefix('//')}:{name}",
                     license=str(license_name) if license_name else None,
                 )
                 self._object_roots[object_id] = root
 
-    def package_detail(self, package_id: str) -> dict[str, Any]:
+    def package_detail(self, package_id: str, include_private: bool = False) -> dict[str, Any]:
         package = self._packages[package_id]
-        objects = [asdict(item) for item in self.objects if item.package_id == package_id]
-        return {**asdict(package), "objects": objects}
+        if self._is_private_path(package.path) and not include_private:
+            raise KeyError(package_id)
+        objects = [self._object_payload(item) for item in self.objects if item.package_id == package_id]
+        return {**self._package_payload(package), "objects": objects}
 
-    def catalog(self) -> dict[str, Any]:
+    def catalog(self, include_private: bool = False) -> dict[str, Any]:
         categories: dict[str, list[dict[str, Any]]] = {}
         for package in self.packages:
-            categories.setdefault(package.category, []).append(asdict(package))
+            if self._is_private_path(package.path) and not include_private:
+                continue
+            categories.setdefault(package.category, []).append(self._package_payload(package))
+        visible_objects = [item for item in self.objects if include_private or not self._is_private_path(item.package_path)]
         return {
             "name": "NarysAI Registry",
-            "package_count": len(self._packages),
-            "object_count": len(self._objects),
+            "package_count": sum(len(items) for items in categories.values()),
+            "object_count": len(visible_objects),
             "categories": [{"name": name, "packages": items} for name, items in sorted(categories.items())],
-            "featured": [asdict(item) for item in self.objects[:12]],
+            "featured": [self._object_payload(item) for item in visible_objects[:12]],
         }
 
-    def search(self, query: str) -> list[dict[str, Any]]:
+    def search(self, query: str, include_private: bool = False) -> list[dict[str, Any]]:
         needle = query.casefold().strip()
         values: list[dict[str, Any]] = []
         for package in self.packages:
+            if self._is_private_path(package.path) and not include_private:
+                continue
             if needle in f"{package.name} {package.description} {package.path}".casefold():
-                values.append({"result_type": "package", **asdict(package)})
+                values.append({"result_type": "package", **self._package_payload(package)})
         for item in self.objects:
+            if self._is_private_path(item.package_path) and not include_private:
+                continue
             if needle in f"{item.name} {item.description} {item.package_path}".casefold():
-                values.append({"result_type": "object", **asdict(item)})
+                values.append({"result_type": "object", **self._object_payload(item)})
         return values[:100]
 
-    def object_detail(self, object_id: str) -> dict[str, Any]:
+    def object_detail(self, object_id: str, include_private: bool = False) -> dict[str, Any]:
         item = self._objects.get(object_id)
         if not item:
             raise KeyError(object_id)
-        return asdict(item)
+        if self._is_private_path(item.package_path) and not include_private:
+            raise KeyError(object_id)
+        return self._object_payload(item)
 
-    def object_by_path(self, kind: str, semantic_path: str) -> dict[str, Any]:
+    def object_by_path(self, kind: str, semantic_path: str, include_private: bool = False) -> dict[str, Any]:
         normalized_kind = kind.casefold().removesuffix("s")
         for item in self._objects.values():
             if item.kind == normalized_kind and item.semantic_path == semantic_path:
-                return asdict(item)
+                if self._is_private_path(item.package_path) and not include_private:
+                    break
+                return self._object_payload(item)
         raise KeyError(f"{kind}/{semantic_path}")
 
     def source_file(self, object_id: str) -> Path:

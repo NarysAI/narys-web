@@ -5,15 +5,21 @@ services:
     environment:
       NARYS_INDEX_URL: ${NARYS_INDEX_URL:-https://github.com/NarysAI/narys-index.git}
       NARYS_INDEX_REF: ${NARYS_INDEX_REF:-main}
-      NARYS_CACHE_DIR: ${NARYS_CACHE_DIR:-/var/lib/narys}
+      NARYS_CACHE_DIR: ${NARYS_CACHE_DIR:-/srv/narys}
+      NARYS_PUBLIC_REPO_DIR: /srv/narys/repositories/PUB
+      NARYS_PRIVATE_REPO_DIR: /srv/narys/repositories/indra
       NARYS_LOG_LEVEL: ${NARYS_LOG_LEVEL:-INFO}
+      NARYS_ENV: ${NARYS_ENV:-development}
     ports:
       - "127.0.0.1:${NARYS_API_PORT:-8001}:8000"
     volumes:
-      - narys-cache:/var/lib/narys
+      - ./var:/srv/narys
+      - ../PUB:/srv/narys/repositories/PUB:ro
+      - ../indra:/srv/narys/repositories/indra:ro
       - ./backend/app:/app/app
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      start_period: 10m
       interval: 10s
       timeout: 5s
       retries: 10

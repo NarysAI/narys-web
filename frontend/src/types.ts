@@ -7,6 +7,12 @@ export type Package = {
   web_url?: string
   category: string
   status: string
+  namespace?: string
+  visibility?: 'public' | 'private'
+  repository?: 'PUB' | 'indra'
+  git_commit?: string
+  upstream_url?: string
+  license_status?: string
 }
 
 export type CatalogObject = {
@@ -21,7 +27,18 @@ export type CatalogObject = {
   source_url: string
   semantic_path: string
   license?: string
+  namespace?: string
+  visibility?: 'public' | 'private'
+  repository?: 'PUB' | 'indra'
+  git_path?: string
+  git_commit?: string
+  upstream_url?: string
+  checksum?: string
+  size?: number
+  license_status?: string
 }
+
+export type Principal = { key_id: string; name: string; role: 'user' | 'admin' }
 
 export type Catalog = {
   name: string

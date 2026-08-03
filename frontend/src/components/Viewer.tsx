@@ -1,11 +1,11 @@
 import { Bounds, Environment, OrbitControls, useGLTF } from '@react-three/drei'
 import { Canvas } from '@react-three/fiber'
-import { Suspense, useMemo } from 'react'
+import { Suspense, useEffect, useMemo, useState } from 'react'
 import * as THREE from 'three'
-import { API } from '../api'
+import { API, authorizedBlobUrl } from '../api'
 
 function Model({ id }: { id: string }) {
-  const { scene } = useGLTF(`${API}/api/v1/objects/${id}/preview.gltf`)
+  const { scene } = useGLTF(id)
   const greenScene = useMemo(() => {
     const clone = scene.clone(true)
     clone.traverse((child) => {
@@ -22,7 +22,18 @@ function Model({ id }: { id: string }) {
   return <primitive object={greenScene} />
 }
 
-export function Viewer({ id }: { id: string }) {
+export function Viewer({ id, privateObject = false }: { id: string; privateObject?: boolean }) {
+  const [url, setUrl] = useState(privateObject ? '' : `${API}/api/v1/objects/${id}/preview.gltf`)
+  useEffect(() => {
+    if (!privateObject) { setUrl(`${API}/api/v1/objects/${id}/preview.gltf`); return }
+    let active = true
+    let blobUrl = ''
+    authorizedBlobUrl(`/api/v1/objects/${id}/preview.gltf`).then((value) => {
+      blobUrl = value
+      if (active) setUrl(value)
+    }).catch(() => setUrl(''))
+    return () => { active = false; if (blobUrl) URL.revokeObjectURL(blobUrl) }
+  }, [id, privateObject])
   return (
     <div className="viewer" aria-label="Інтерактивний 3D-переглядач">
       <Canvas camera={{ position: [3, 2.2, 3], fov: 42 }} shadows gl={{ toneMappingExposure: 0.72 }}>
@@ -31,7 +42,7 @@ export function Viewer({ id }: { id: string }) {
         <directionalLight position={[5, 7, 4]} intensity={1.15} color="#d8fff0" castShadow />
         <Suspense fallback={null}>
           <Bounds fit clip observe margin={1.25}>
-            <Model id={id} />
+            {url && <Model id={url} />}
           </Bounds>
           <Environment preset="warehouse" environmentIntensity={0.45} />
         </Suspense>

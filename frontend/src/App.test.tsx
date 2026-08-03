@@ -12,6 +12,7 @@ const battery = {
   name: 'battery-7_5', kind: 'part', description: 'EGO battery', source_type: 'step',
   source_path: 'battery-7_5.step', source_url: 'https://github.com/partcad/partcad-electrical-ego',
   semantic_path: 'electrical/battery/ego:battery-7_5',
+  visibility: 'public', git_commit: 'main', git_path: 'electrical/battery/ego/battery-7_5.step',
 }
 
 vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
@@ -23,7 +24,7 @@ test('renders the NarysAI repository identity', async () => {
   const { hook } = memoryLocation({ path: '/repository' })
   render(<Router hook={hook}><App /></Router>)
   expect(await screen.findByText(/Креслення, готові/i)).toBeInTheDocument()
-  expect(screen.getByText('NarysAI collection')).toBeInTheDocument()
+  expect(screen.getByText('NarysAI public')).toBeInTheDocument()
 })
 
 test('opens an object with a public PartCAD-compatible path', async () => {
@@ -31,8 +32,8 @@ test('opens an object with a public PartCAD-compatible path', async () => {
   render(<Router hook={hook}><App /></Router>)
   expect(await screen.findByRole('heading', { name: 'battery-7_5' })).toBeInTheDocument()
   expect(screen.getByText('electrical/battery/ego:battery-7_5')).toBeInTheDocument()
-  expect(screen.getByRole('link', { name: /Завантажити вихідний файл/ })).toHaveAttribute(
-    'href', '/api/v1/objects/ego-battery/source',
+  expect(screen.getByRole('link', { name: /Відкрити файл у PUB/ })).toHaveAttribute(
+    'href', 'https://github.com/NarysAI/PUB/blob/main/electrical/battery/ego/battery-7_5.step',
   )
   expect(screen.getByRole('link', { name: /Пакет у NarysAI/ })).toHaveAttribute('href', '/repository/package/ego')
 })
