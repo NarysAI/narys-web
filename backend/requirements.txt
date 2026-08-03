@@ -1,0 +1,9 @@
+fastapi==0.116.1
+uvicorn[standard]==0.35.0
+PyYAML==6.0.2
+trimesh[easy]==4.7.4
+Pillow==11.3.0
+partcad @ git+https://github.com/NarysAI/partcad.git@devel#subdirectory=partcad
+partcad-cli @ git+https://github.com/NarysAI/partcad.git@devel#subdirectory=partcad-cli
+httpx==0.28.1
+pytest==8.4.1
