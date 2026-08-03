@@ -63,7 +63,7 @@ def _run(*args: str, cwd: Path | None = None) -> None:
 
 
 class CatalogService:
-    def __init__(self, index_url: str, index_ref: str, cache_dir: Path, private_repo_dir: Path | None = None):
+    def __init__(self, index_url: str, index_ref: str, cache_dir: Path, private_repo_dir: Path | None = None, public_repo_dir: Path | None = None):
         self.index_url = index_url
         self.index_ref = index_ref
         self.cache_dir = cache_dir
@@ -72,6 +72,7 @@ class CatalogService:
         self.preview_dir = cache_dir / "previews"
         self.database_path = cache_dir / "catalog.sqlite3"
         self.private_repo_dir = private_repo_dir
+        self.public_repo_dir = public_repo_dir
         self._packages: dict[str, Package] = {}
         self._objects: dict[str, CatalogObject] = {}
         self._object_roots: dict[str, Path] = {}
@@ -290,8 +291,9 @@ class CatalogService:
             if not package:
                 raise KeyError(package_id)
         checkout_key = f"{package.source_url}@{package.revision or 'HEAD'}"
-        local_repository = package.source_url.startswith("file://")
-        checkout = Path(package.source_url.removeprefix("file://")) if local_repository else self.package_dir / hashlib.sha256(checkout_key.encode()).hexdigest()[:16]
+        public_mirror = self.public_repo_dir if package.source_url.rstrip("/").removesuffix(".git") == "https://github.com/NarysAI/PUB" else None
+        local_repository = package.source_url.startswith("file://") or public_mirror is not None
+        checkout = public_mirror or (Path(package.source_url.removeprefix("file://")) if local_repository else self.package_dir / hashlib.sha256(checkout_key.encode()).hexdigest()[:16])
         if not local_repository and not (checkout / ".git").exists():
             temporary = Path(tempfile.mkdtemp(prefix=f".{checkout.name}-", dir=self.package_dir))
             shutil.rmtree(temporary)

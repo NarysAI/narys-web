@@ -22,13 +22,13 @@ private_repository = Path(os.environ["NARYS_PRIVATE_REPO_DIR"]) if os.getenv("NA
 public_repository = Path(os.environ["NARYS_PUBLIC_REPO_DIR"]) if os.getenv("NARYS_PUBLIC_REPO_DIR") else None
 snapshots = SnapshotManager(cache_root / "snapshots")
 private_snapshot = snapshots.activate("indra", private_repository) if private_repository and (private_repository / ".git").is_dir() else private_repository
-if public_repository and (public_repository / ".git").is_dir():
-    snapshots.activate("PUB", public_repository)
+public_snapshot = snapshots.activate("PUB", public_repository) if public_repository and (public_repository / ".git").is_dir() else public_repository
 service = CatalogService(
     index_url=os.getenv("NARYS_INDEX_URL", "https://github.com/NarysAI/narys-index.git"),
     index_ref=os.getenv("NARYS_INDEX_REF", "main"),
     cache_dir=cache_root,
     private_repo_dir=private_snapshot,
+    public_repo_dir=public_snapshot,
 )
 auth = AuthService(service.database_path)
 
@@ -247,6 +247,10 @@ def admin_sync_runs(_: Principal = Depends(require_admin)):
 def refresh(principal: Principal = Depends(require_admin)):
     run_id = auth.start_sync()
     try:
+        if public_repository and (public_repository / ".git").is_dir():
+            service.public_repo_dir = snapshots.activate("PUB", public_repository)
+        if private_repository and (private_repository / ".git").is_dir():
+            service.private_repo_dir = snapshots.activate("indra", private_repository)
         result = {"status": "refreshed", **service.refresh()}
         auth.finish_sync(run_id, "complete", result)
         auth.audit(principal.key_id, "catalog.refresh", None, "ok")
