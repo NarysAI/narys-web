@@ -1,7 +1,7 @@
 import { Box, Boxes, ChevronRight, Database, ExternalLink, FileSearch, GitFork, LoaderCircle, Menu, RefreshCw, Search, Sparkles, X } from 'lucide-react'
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { Link, Route, Switch, useLocation, useRoute } from 'wouter'
-import { API, getCatalog, getObject, getPackage, refresh, search } from './api'
+import { API, getCatalog, getObject, getObjectByPath, getPackage, refresh, search } from './api'
 import { Viewer } from './components/Viewer'
 import type { Catalog, CatalogObject, Package } from './types'
 
@@ -21,7 +21,7 @@ function Sidebar({ catalog, open, close }: { catalog: Catalog | null; open: bool
 }
 
 function ObjectCard({ item }: { item: CatalogObject }) {
-  return <Link className="object-card" href={`/repository/object/${item.id}`}><div className="object-preview"><img src={`${API}/api/v1/objects/${item.id}/thumbnail.png`} alt="" /><span>{item.kind}</span></div><div className="object-copy"><small>{item.package_path}</small><h3>{item.name}</h3><p>{item.description}</p><div><span>{item.source_type.toUpperCase()}</span><ChevronRight size={17} /></div></div></Link>
+  return <Link className="object-card" href={`/repository/${item.kind}/${item.semantic_path}`}><div className="object-preview"><img src={`${API}/api/v1/objects/${item.id}/thumbnail.png`} alt="" /><span>{item.kind}</span></div><div className="object-copy"><small>{item.package_path}</small><h3>{item.name}</h3><p>{item.description}</p><div><span>{item.source_type.toUpperCase()}</span><ChevronRight size={17} /></div></div></Link>
 }
 
 function Home({ catalog, reload }: { catalog: Catalog | null; reload: () => Promise<void> }) {
@@ -50,7 +50,20 @@ function ObjectPage() {
   const [, params] = useRoute('/repository/object/:id'); const id = params?.id ?? ''; const [item, setItem] = useState<CatalogObject | null>(null); const [error, setError] = useState('')
   useEffect(() => { getObject(id).then(setItem).catch((e) => setError(e.message)) }, [id])
   if (error) return <main><ErrorBox text={error} /></main>; if (!item) return <Loading />
-  return <main><div className="breadcrumbs"><Link href="/repository">Repository</Link><ChevronRight size={15} /><Link href={`/repository/package/${item.package_id}`}>{item.package_path}</Link><ChevronRight size={15} /><span>{item.name}</span></div><div className="detail-layout"><Viewer id={item.id} /><article className="detail-panel"><span className="type-pill">{item.kind}</span><h1>{item.name}</h1><p>{item.description}</p><dl><div><dt>Формат</dt><dd>{item.source_type.toUpperCase()}</dd></div><div><dt>Пакет</dt><dd>{item.package_path}</dd></div><div><dt>Файл</dt><dd>{item.source_path || 'генерований'}</dd></div><div><dt>Ліцензія</dt><dd>{item.license || 'див. репозиторій'}</dd></div></dl><a className="source-button" href={item.source_url} target="_blank" rel="noreferrer">Відкрити джерело <ExternalLink size={17} /></a></article></div></main>
+  return <ObjectDetail item={item} />
+}
+
+function SemanticObjectPage() {
+  const [location] = useLocation(); const [item, setItem] = useState<CatalogObject | null>(null); const [error, setError] = useState('')
+  const match = location.match(/^\/repository\/(part|assembly|sketch)\/(.+)$/)
+  const kind = match?.[1] ?? ''; const semanticPath = match?.[2] ? decodeURI(match[2]) : ''
+  useEffect(() => { if (kind && semanticPath) getObjectByPath(kind, semanticPath).then(setItem).catch((e) => setError(e.message)) }, [kind, semanticPath])
+  if (error) return <main><ErrorBox text={error} /></main>; if (!item) return <Loading />
+  return <ObjectDetail item={item} />
+}
+
+function ObjectDetail({ item }: { item: CatalogObject }) {
+  return <main><div className="breadcrumbs"><Link href="/repository">Repository</Link><ChevronRight size={15} /><Link href={`/repository/package/${item.package_id}`}>{item.package_path}</Link><ChevronRight size={15} /><span>{item.name}</span></div><div className="detail-layout"><Viewer id={item.id} /><article className="detail-panel"><span className="type-pill">{item.kind}</span><h1>{item.name}</h1><p>{item.description}</p><dl><div><dt>Формат</dt><dd>{item.source_type.toUpperCase()}</dd></div><div><dt>PartCAD path</dt><dd>{item.semantic_path}</dd></div><div><dt>Пакет</dt><dd>{item.package_path}</dd></div><div><dt>Файл</dt><dd>{item.source_path || 'генерований'}</dd></div><div><dt>Ліцензія</dt><dd>{item.license || 'див. репозиторій'}</dd></div></dl><a className="source-button" href={item.source_url} target="_blank" rel="noreferrer">Відкрити джерело <ExternalLink size={17} /></a></article></div></main>
 }
 
 function Loading() { return <main className="center-state"><LoaderCircle className="spin" /><h2>Завантажуємо пакет…</h2></main> }
@@ -61,5 +74,5 @@ export default function App() {
   const [catalog, setCatalog] = useState<Catalog | null>(null); const [menu, setMenu] = useState(false); const [error, setError] = useState('')
   const load = async () => { try { setCatalog(await getCatalog()) } catch (e) { setError((e as Error).message) } }
   useEffect(() => { load() }, [])
-  return <div className="app-shell"><Header onMenu={() => setMenu(true)} /><Sidebar catalog={catalog} open={menu} close={() => setMenu(false)} /><div className="content">{error && <ErrorBox text={error} />}<Switch><Route path="/repository/package/:id"><PackagePage /></Route><Route path="/repository/object/:id"><ObjectPage /></Route><Route path="/repository"><Home catalog={catalog} reload={load} /></Route><Route><Home catalog={catalog} reload={load} /></Route></Switch></div></div>
+  return <div className="app-shell"><Header onMenu={() => setMenu(true)} /><Sidebar catalog={catalog} open={menu} close={() => setMenu(false)} /><div className="content">{error && <ErrorBox text={error} />}<Switch><Route path="/repository/package/:id"><PackagePage /></Route><Route path="/repository/object/:id"><ObjectPage /></Route><Route path="/repository/:kind/*"><SemanticObjectPage /></Route><Route path="/repository"><Home catalog={catalog} reload={load} /></Route><Route><Home catalog={catalog} reload={load} /></Route></Switch></div></div>
 }

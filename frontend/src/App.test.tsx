@@ -4,11 +4,31 @@ import { Router } from 'wouter'
 import { memoryLocation } from 'wouter/memory-location'
 import App from './App'
 
-vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({ name: 'NarysAI Registry', package_count: 1, object_count: 0, categories: [], featured: [] }) })) as unknown as typeof fetch)
+vi.mock('./components/Viewer', () => ({ Viewer: () => <div>3D viewer</div> }))
+
+const catalog = { name: 'NarysAI Registry', package_count: 1, object_count: 0, categories: [], featured: [] }
+const battery = {
+  id: 'ego-battery', package_id: 'ego', package_path: '//pub/electrical/battery/ego',
+  name: 'battery-7_5', kind: 'part', description: 'EGO battery', source_type: 'step',
+  source_path: 'battery-7_5.step', source_url: 'https://github.com/partcad/partcad-electrical-ego',
+  semantic_path: 'electrical/battery/ego:battery-7_5',
+}
+
+vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+  const value = String(input)
+  return Promise.resolve({ ok: true, json: () => Promise.resolve(value.includes('/by-path/') ? battery : catalog) })
+}) as unknown as typeof fetch)
 
 test('renders the NarysAI repository identity', async () => {
   const { hook } = memoryLocation({ path: '/repository' })
   render(<Router hook={hook}><App /></Router>)
   expect(await screen.findByText(/Креслення, готові/i)).toBeInTheDocument()
   expect(screen.getByText('NarysAI collection')).toBeInTheDocument()
+})
+
+test('opens an object with a public PartCAD-compatible path', async () => {
+  const { hook } = memoryLocation({ path: '/repository/part/electrical/battery/ego:battery-7_5' })
+  render(<Router hook={hook}><App /></Router>)
+  expect(await screen.findByRole('heading', { name: 'battery-7_5' })).toBeInTheDocument()
+  expect(screen.getByText('electrical/battery/ego:battery-7_5')).toBeInTheDocument()
 })

@@ -19,6 +19,7 @@ export type CatalogObject = {
   source_type: string
   source_path?: string
   source_url: string
+  semantic_path: string
   license?: string
 }
 

@@ -13,6 +13,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 export const getCatalog = () => request<Catalog>('/api/v1/catalog')
 export const getObject = (id: string) => request<CatalogObject>(`/api/v1/objects/${id}`)
+export const getObjectByPath = (kind: string, path: string) => request<CatalogObject>(`/api/v1/by-path/${kind}/${encodeURI(path)}`)
 export const getPackage = (id: string) => request<Package & { objects: CatalogObject[] }>(`/api/v1/packages/${id}`)
 export const search = (query: string) => request<{ results: ((Package | CatalogObject) & { result_type: string })[] }>(`/api/v1/search?q=${encodeURIComponent(query)}`)
 export const refresh = () => request<{ status: string }>('/api/v1/catalog/refresh', { method: 'POST' })

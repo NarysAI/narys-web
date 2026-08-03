@@ -78,6 +78,14 @@ def object_detail(object_id: str):
         raise HTTPException(404, "Object not found") from exc
 
 
+@app.get("/api/v1/by-path/{kind}/{semantic_path:path}")
+def object_by_path(kind: str, semantic_path: str):
+    try:
+        return service.object_by_path(kind, semantic_path)
+    except KeyError as exc:
+        raise HTTPException(404, "Object path not found in the indexed PartCAD registry") from exc
+
+
 @app.get("/api/v1/objects/{object_id}/preview.gltf")
 def preview(object_id: str):
     try:

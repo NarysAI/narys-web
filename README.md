@@ -14,7 +14,15 @@ docker compose up --build
 
 Open [http://localhost:3000/repository](http://localhost:3000/repository). The frontend proxies `/api` to the API container, so the same-origin health endpoint is available at [http://localhost:3000/api/v1/health](http://localhost:3000/api/v1/health). Host ports `3000` and `8001` bind to loopback only; the direct API docs remain available to the local owner at [http://localhost:8001/docs](http://localhost:8001/docs). Override `NARYS_WEB_PORT` or `NARYS_API_PORT` only when the corresponding loopback port is unavailable.
 
-The first start clones the index. Opening a package clones that package lazily. Git checkouts and generated GLB/PNG previews remain in the `narys-cache` Docker volume.
+The first start clones the index and every package referenced by it, including packages pinned to a Git revision and nested `partcad.yaml` files. This can take a few minutes. The normalized catalog is stored in SQLite; Git checkouts and generated GLB/PNG previews remain in the `narys-cache` Docker volume. Later starts reuse that data and do not clone packages again.
+
+Object pages use readable PartCAD paths compatible with the public repository. For example:
+
+```text
+http://localhost:3000/repository/part/electrical/battery/ego:battery-7_5
+```
+
+The catalog is generated entirely from `NarysAI/narys-index`; it does not depend on the PartCAD.org backend.
 
 ## Add a drawing package
 
