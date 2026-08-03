@@ -12,7 +12,7 @@ Local, Git-backed catalog for AI-ready engineering drawings and PartCAD packages
 docker compose up --build
 ```
 
-Open [http://localhost:3000/repository](http://localhost:3000/repository). The API is available at [http://localhost:8001/docs](http://localhost:8001/docs). Port `8001` avoids the services that commonly occupy port `8000`; override `NARYS_API_PORT` and `VITE_API_URL` together if needed.
+Open [http://localhost:3000/repository](http://localhost:3000/repository). The frontend proxies `/api` to the API container, so the same-origin health endpoint is available at [http://localhost:3000/api/v1/health](http://localhost:3000/api/v1/health). Host ports `3000` and `8001` bind to loopback only; the direct API docs remain available to the local owner at [http://localhost:8001/docs](http://localhost:8001/docs). Override `NARYS_WEB_PORT` or `NARYS_API_PORT` only when the corresponding loopback port is unavailable.
 
 The first start clones the index. Opening a package clones that package lazily. Git checkouts and generated GLB/PNG previews remain in the `narys-cache` Docker volume.
 
@@ -42,7 +42,7 @@ import:
 Commit and push the index change, then use **Оновити індекс** in the UI or call:
 
 ```powershell
-Invoke-RestMethod -Method Post http://localhost:8001/api/v1/catalog/refresh
+Invoke-RestMethod -Method Post http://localhost:3000/api/v1/catalog/refresh
 ```
 
 ## Development

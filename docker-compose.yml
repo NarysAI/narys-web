@@ -8,7 +8,7 @@ services:
       NARYS_CACHE_DIR: ${NARYS_CACHE_DIR:-/var/lib/narys}
       NARYS_LOG_LEVEL: ${NARYS_LOG_LEVEL:-INFO}
     ports:
-      - "${NARYS_API_PORT:-8001}:8000"
+      - "127.0.0.1:${NARYS_API_PORT:-8001}:8000"
     volumes:
       - narys-cache:/var/lib/narys
       - ./backend/app:/app/app
@@ -23,15 +23,20 @@ services:
       context: ./frontend
       target: development
     environment:
-      VITE_API_URL: ${VITE_API_URL:-http://localhost:8001}
+      VITE_API_URL: "${VITE_API_URL:-}"
     ports:
-      - "3000:3000"
+      - "127.0.0.1:${NARYS_WEB_PORT:-3000}:3000"
     volumes:
       - ./frontend/src:/app/src
       - ./frontend/index.html:/app/index.html
     depends_on:
       api:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
 volumes:
   narys-cache:
