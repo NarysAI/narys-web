@@ -11,7 +11,7 @@ function Model({ id }: { id: string }) {
     clone.traverse((child) => {
       if (child instanceof THREE.Mesh) {
         child.material = new THREE.MeshStandardMaterial({
-          color: '#087a4f', roughness: 0.62, metalness: 0.04,
+          color: '#109b68', roughness: 0.60, metalness: 0.04,
         })
         child.castShadow = true
         child.receiveShadow = true
