@@ -7,6 +7,7 @@ import shutil
 import sqlite3
 import subprocess
 import threading
+import zipfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -368,6 +369,37 @@ class CatalogService:
                 return asdict(item)
         raise KeyError(f"{kind}/{semantic_path}")
 
+    def source_file(self, object_id: str) -> Path:
+        item = self._objects.get(object_id)
+        if not item:
+            raise KeyError(object_id)
+        root = self._object_roots.get(object_id)
+        if not root or not item.source_path:
+            raise CatalogError("This object is generated and has no standalone source file")
+        source = (root / item.source_path).resolve()
+        if not source.is_relative_to(root.resolve()) or not source.is_file():
+            raise CatalogError(f"Source model is unavailable: {item.source_path}")
+        return source
+
+    def package_archive(self, package_id: str) -> Path:
+        package = self._packages.get(package_id)
+        if not package:
+            raise KeyError(package_id)
+        checkout_key = f"{package.source_url}@{package.revision or 'HEAD'}"
+        checkout = self.package_dir / hashlib.sha256(checkout_key.encode()).hexdigest()[:16]
+        requested = checkout / package.rel_path if package.rel_path else checkout
+        root = requested if requested.is_dir() else checkout
+        if not root.is_dir():
+            raise CatalogError("The local package checkout is unavailable")
+        output = self.preview_dir / f"package-{package_id}.zip"
+        if output.exists():
+            return output
+        with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for path in root.rglob("*"):
+                if path.is_file() and ".git" not in path.parts:
+                    archive.write(path, Path(package.name) / path.relative_to(root))
+        return output
+
     def preview(self, object_id: str) -> Path:
         item = self._objects.get(object_id)
         if not item:
@@ -392,13 +424,57 @@ class CatalogService:
         item = self._objects.get(object_id)
         if not item:
             raise KeyError(object_id)
-        output = self.preview_dir / f"{object_id}.png"
+        output = self.preview_dir / f"{object_id}-v2.png"
         if not output.exists():
-            image = Image.new("RGB", (960, 600), "#101a18")
-            draw = ImageDraw.Draw(image)
-            draw.rounded_rectangle((110, 90, 850, 510), radius=48, fill="#172824", outline="#6ee7b7", width=4)
-            draw.text((160, 150), "NarysAI", fill="#6ee7b7", font_size=42)
-            draw.text((160, 260), item.name[:34], fill="#f1f5f3", font_size=44)
-            draw.text((160, 340), f"{item.kind.upper()} · {item.source_type.upper()}", fill="#9fb4ae", font_size=25)
-            image.save(output)
+            try:
+                scene = trimesh.load(self.preview(object_id), force="scene")
+                vertices: list = []
+                faces: list = []
+                offset = 0
+                for geometry in scene.geometry.values():
+                    if not isinstance(geometry, trimesh.Trimesh) or not len(geometry.vertices):
+                        continue
+                    vertices.extend(geometry.vertices.tolist())
+                    faces.extend((geometry.faces + offset).tolist())
+                    offset += len(geometry.vertices)
+                self._draw_mesh_thumbnail(vertices, faces, output)
+            except Exception:
+                image = Image.new("RGB", (960, 600), "#101a18")
+                draw = ImageDraw.Draw(image)
+                draw.rounded_rectangle((110, 90, 850, 510), radius=48, fill="#172824", outline="#6ee7b7", width=4)
+                draw.text((160, 150), "NarysAI", fill="#6ee7b7", font_size=42)
+                draw.text((160, 260), item.name[:34], fill="#f1f5f3", font_size=44)
+                draw.text((160, 340), f"{item.kind.upper()} · {item.source_type.upper()}", fill="#9fb4ae", font_size=25)
+                image.save(output)
         return output
+
+    @staticmethod
+    def _draw_mesh_thumbnail(vertices: list, faces: list, output: Path) -> None:
+        import numpy as np
+
+        points = np.asarray(vertices, dtype=float)
+        triangles = np.asarray(faces, dtype=int)
+        if not len(points) or not len(triangles):
+            raise CatalogError("Preview has no mesh geometry")
+        points -= (points.min(axis=0) + points.max(axis=0)) / 2
+        yaw, pitch = np.deg2rad(35), np.deg2rad(25)
+        rotation_y = np.array([[np.cos(yaw), 0, np.sin(yaw)], [0, 1, 0], [-np.sin(yaw), 0, np.cos(yaw)]])
+        rotation_x = np.array([[1, 0, 0], [0, np.cos(pitch), -np.sin(pitch)], [0, np.sin(pitch), np.cos(pitch)]])
+        points = points @ rotation_y.T @ rotation_x.T
+        xy = points[:, :2]
+        scale = 440 / max(float(np.ptp(xy, axis=0).max()), 1e-9)
+        xy = xy * scale + np.array([480, 300])
+        image = Image.new("RGB", (960, 600), "#101a18")
+        draw = ImageDraw.Draw(image)
+        order = np.argsort(points[triangles].mean(axis=1)[:, 2])
+        step = max(1, len(order) // 18000)
+        light = np.array([0.35, -0.45, 0.82])
+        for face_index in order[::step]:
+            face = triangles[face_index]
+            polygon = points[face]
+            normal = np.cross(polygon[1] - polygon[0], polygon[2] - polygon[0])
+            length = np.linalg.norm(normal)
+            shade = 0.45 if length == 0 else 0.42 + 0.50 * abs(float(np.dot(normal / length, light)))
+            color = tuple(int(channel * shade) for channel in (83, 232, 176))
+            draw.polygon([tuple(xy[index]) for index in face], fill=color, outline="#183e33")
+        image.save(output)

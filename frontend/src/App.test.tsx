@@ -31,4 +31,8 @@ test('opens an object with a public PartCAD-compatible path', async () => {
   render(<Router hook={hook}><App /></Router>)
   expect(await screen.findByRole('heading', { name: 'battery-7_5' })).toBeInTheDocument()
   expect(screen.getByText('electrical/battery/ego:battery-7_5')).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: /Завантажити вихідний файл/ })).toHaveAttribute(
+    'href', '/api/v1/objects/ego-battery/source',
+  )
+  expect(screen.getByRole('link', { name: /Пакет у NarysAI/ })).toHaveAttribute('href', '/repository/package/ego')
 })

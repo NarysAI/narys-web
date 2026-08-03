@@ -96,6 +96,28 @@ def preview(object_id: str):
         raise HTTPException(422, str(exc)) from exc
 
 
+@app.get("/api/v1/objects/{object_id}/source")
+def object_source(object_id: str):
+    try:
+        source = service.source_file(object_id)
+        return FileResponse(source, filename=source.name, media_type="application/octet-stream")
+    except KeyError as exc:
+        raise HTTPException(404, "Object not found") from exc
+    except CatalogError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@app.get("/api/v1/packages/{package_id}/archive.zip")
+def package_archive(package_id: str):
+    try:
+        archive = service.package_archive(package_id)
+        return FileResponse(archive, filename=f"narys-{service.package_detail(package_id)['name']}.zip", media_type="application/zip")
+    except KeyError as exc:
+        raise HTTPException(404, "Package not found") from exc
+    except CatalogError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
 @app.get("/api/v1/objects/{object_id}/thumbnail.png")
 def thumbnail(object_id: str):
     try:

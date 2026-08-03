@@ -40,8 +40,9 @@ main { max-width: 1500px; margin: 0 auto; padding: 36px 44px 80px; }
 .hero h1 em { color: var(--mint); font-style: normal; font-weight: 500; }
 .hero p { max-width: 670px; color: #9cafaa; font-size: 16px; line-height: 1.75; }
 .hero-actions { display: flex; gap: 12px; margin-top: 30px; }
-.hero-actions a, .hero-actions button, .page-title > a, .source-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 18px; border: 1px solid var(--mint); background: var(--mint); color: #092018; font-weight: 700; font-size: 12px; cursor: pointer; }
-.hero-actions button, .page-title > a { border-color: #385049; background: transparent; color: #c1cfcb; }
+.hero-actions a, .hero-actions button, .page-actions a, .source-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 18px; border: 1px solid var(--mint); background: var(--mint); color: #092018; font-weight: 700; font-size: 12px; cursor: pointer; }
+.hero-actions button, .page-actions .upstream-link { border-color: #385049; background: transparent; color: #c1cfcb; }
+.page-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
 .hero-stat { position: relative; z-index: 2; padding: 28px; border-left: 1px solid #385149; background: rgba(13,27,23,.62); backdrop-filter: blur(10px); }
 .hero-stat > svg { color: var(--mint); }
 .hero-stat > strong { display: block; margin-top: 36px; font: 500 64px DM Mono; letter-spacing: -.08em; }
@@ -87,6 +88,8 @@ main { max-width: 1500px; margin: 0 auto; padding: 36px 44px 80px; }
 .detail-panel dt { color: #697d76; }
 .detail-panel dd { margin: 0; color: #c4d0cc; overflow-wrap: anywhere; }
 .source-button { width: 100%; }
+.package-source-link { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 42px; margin-top: 10px; border: 1px solid #385049; color: #d8e6e1; font-size: 12px; font-weight: 700; }
+.attribution-link { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 13px; color: var(--muted); font-size: 11px; }
 .error-box { display: flex; flex-direction: column; gap: 5px; margin: 24px 0; padding: 16px 18px; border: 1px solid #7b4a42; background: #2a1916; color: #e8b9ae; font-size: 12px; }
 .empty, .center-state { display: grid; place-items: center; min-height: 320px; text-align: center; color: #71827d; }
 .empty h2, .center-state h2 { margin: 15px 0 0; color: #bdcac6; }

@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from app.catalog import CatalogObject
+from app.catalog import CatalogObject, Package
 from app.main import app, service
 
 
@@ -51,3 +51,40 @@ def test_jinja_partcad_config_supports_math_constants(tmp_path):
     config.write_text("parts:\n  item:\n    desc: '{{ SQRT_2 }}'\n", encoding="utf-8")
     data = service._load_package_yaml(config)
     assert data["parts"]["item"]["desc"].startswith("1.414")
+
+
+def test_local_source_and_compatible_package_archive(tmp_path):
+    package = Package(
+        id="local-package", path="//pub/test/local", name="local",
+        description="Local package", source_url="https://example.test/local.git", status="loaded",
+    )
+    item = CatalogObject(
+        id="local-part", package_id=package.id, package_path=package.path, name="part",
+        kind="part", description="Part", source_type="step", source_path="part.step",
+        source_url=package.source_url, semantic_path="test/local:part",
+    )
+    checkout_key = f"{package.source_url}@HEAD"
+    import hashlib
+    checkout = service.package_dir / hashlib.sha256(checkout_key.encode()).hexdigest()[:16]
+    checkout.mkdir(parents=True, exist_ok=True)
+    (checkout / "partcad.yaml").write_text("parts: {}\n", encoding="utf-8")
+    (checkout / "part.step").write_bytes(b"STEP")
+    service._packages[package.id] = package
+    service._objects[item.id] = item
+    service._object_roots[item.id] = checkout
+    archive = None
+    try:
+        assert service.source_file(item.id).read_bytes() == b"STEP"
+        archive = service.package_archive(package.id)
+        import zipfile
+        with zipfile.ZipFile(archive) as content:
+            assert "local/partcad.yaml" in content.namelist()
+            assert "local/part.step" in content.namelist()
+    finally:
+        service._objects.pop(item.id, None)
+        service._packages.pop(package.id, None)
+        service._object_roots.pop(item.id, None)
+        import shutil
+        shutil.rmtree(checkout)
+        if archive:
+            archive.unlink(missing_ok=True)

@@ -1,4 +1,4 @@
-import { Box, Boxes, ChevronRight, Database, ExternalLink, FileSearch, GitFork, LoaderCircle, Menu, RefreshCw, Search, Sparkles, X } from 'lucide-react'
+import { Box, Boxes, ChevronRight, Database, Download, ExternalLink, FileSearch, GitFork, LoaderCircle, Menu, RefreshCw, Search, Sparkles, X } from 'lucide-react'
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { Link, Route, Switch, useLocation, useRoute } from 'wouter'
 import { API, getCatalog, getObject, getObjectByPath, getPackage, refresh, search } from './api'
@@ -43,7 +43,7 @@ function PackagePage() {
   const [, params] = useRoute('/repository/package/:id'); const id = params?.id ?? ''; const [data, setData] = useState<(Package & { objects: CatalogObject[] }) | null>(null); const [error, setError] = useState('')
   useEffect(() => { getPackage(id).then(setData).catch((e) => setError(e.message)) }, [id])
   if (error) return <main><ErrorBox text={error} /></main>; if (!data) return <Loading />
-  return <main><div className="breadcrumbs"><Link href="/repository">Repository</Link><ChevronRight size={15} /><span>{data.name}</span></div><div className="page-title"><div><span className="eyebrow">PartCAD package</span><h1>{data.name}</h1><p>{data.description}</p></div><a href={data.web_url || data.source_url} target="_blank" rel="noreferrer">Вихідний код <ExternalLink size={16} /></a></div>{data.objects.length ? <div className="object-grid">{data.objects.map((item) => <ObjectCard key={item.id} item={item} />)}</div> : <Empty />}</main>
+  return <main><div className="breadcrumbs"><Link href="/repository">Repository</Link><ChevronRight size={15} /><span>{data.name}</span></div><div className="page-title"><div><span className="eyebrow">PartCAD package</span><h1>{data.name}</h1><p>{data.description}</p></div><div className="page-actions"><a href={`${API}/api/v1/packages/${data.id}/archive.zip`} download><Download size={16} /> Завантажити пакет</a><a className="upstream-link" href={data.source_url} target="_blank" rel="noreferrer">Upstream <ExternalLink size={16} /></a></div></div>{data.objects.length ? <div className="object-grid">{data.objects.map((item) => <ObjectCard key={item.id} item={item} />)}</div> : <Empty />}</main>
 }
 
 function ObjectPage() {
@@ -63,7 +63,7 @@ function SemanticObjectPage() {
 }
 
 function ObjectDetail({ item }: { item: CatalogObject }) {
-  return <main><div className="breadcrumbs"><Link href="/repository">Repository</Link><ChevronRight size={15} /><Link href={`/repository/package/${item.package_id}`}>{item.package_path}</Link><ChevronRight size={15} /><span>{item.name}</span></div><div className="detail-layout"><Viewer id={item.id} /><article className="detail-panel"><span className="type-pill">{item.kind}</span><h1>{item.name}</h1><p>{item.description}</p><dl><div><dt>Формат</dt><dd>{item.source_type.toUpperCase()}</dd></div><div><dt>PartCAD path</dt><dd>{item.semantic_path}</dd></div><div><dt>Пакет</dt><dd>{item.package_path}</dd></div><div><dt>Файл</dt><dd>{item.source_path || 'генерований'}</dd></div><div><dt>Ліцензія</dt><dd>{item.license || 'див. репозиторій'}</dd></div></dl><a className="source-button" href={item.source_url} target="_blank" rel="noreferrer">Відкрити джерело <ExternalLink size={17} /></a></article></div></main>
+  return <main><div className="breadcrumbs"><Link href="/repository">Repository</Link><ChevronRight size={15} /><Link href={`/repository/package/${item.package_id}`}>{item.package_path}</Link><ChevronRight size={15} /><span>{item.name}</span></div><div className="detail-layout"><Viewer id={item.id} /><article className="detail-panel"><span className="type-pill">{item.kind}</span><h1>{item.name}</h1><p>{item.description}</p><dl><div><dt>Формат</dt><dd>{item.source_type.toUpperCase()}</dd></div><div><dt>PartCAD path</dt><dd>{item.semantic_path}</dd></div><div><dt>Пакет</dt><dd>{item.package_path}</dd></div><div><dt>Файл</dt><dd>{item.source_path || 'генерований'}</dd></div><div><dt>Ліцензія</dt><dd>{item.license || 'див. репозиторій'}</dd></div></dl>{item.source_path && <a className="source-button" href={`${API}/api/v1/objects/${item.id}/source`} download><Download size={17} /> Завантажити вихідний файл</a>}<Link className="package-source-link" href={`/repository/package/${item.package_id}`}>Пакет у NarysAI <ChevronRight size={16} /></Link><a className="attribution-link" href={item.source_url} target="_blank" rel="noreferrer">Оригінальне джерело <ExternalLink size={14} /></a></article></div></main>
 }
 
 function Loading() { return <main className="center-state"><LoaderCircle className="spin" /><h2>Завантажуємо пакет…</h2></main> }

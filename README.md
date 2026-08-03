@@ -24,6 +24,8 @@ http://localhost:3000/repository/part/electrical/battery/ego:battery-7_5
 
 The catalog is generated entirely from `NarysAI/narys-index`; it does not depend on the PartCAD.org backend.
 
+Every object page offers its original CAD source through the local NarysAI API. Every package page offers a ZIP containing the upstream-compatible `partcad.yaml`, models, scripts, and supporting files. The ZIP intentionally excludes `.git`; use the **Upstream** link on the package page when you want to clone the original repository, create a branch, and submit a pull request. NarysAI does not rewrite package paths or model geometry, so downloaded packages can be copied into other PartCAD projects without conversion.
+
 ## Add a drawing package
 
 Create a Git repository containing a `partcad.yaml` and its source models:

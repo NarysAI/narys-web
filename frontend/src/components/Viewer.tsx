@@ -1,11 +1,25 @@
 import { Bounds, Environment, OrbitControls, useGLTF } from '@react-three/drei'
 import { Canvas } from '@react-three/fiber'
-import { Suspense } from 'react'
+import { Suspense, useMemo } from 'react'
+import * as THREE from 'three'
 import { API } from '../api'
 
 function Model({ id }: { id: string }) {
   const { scene } = useGLTF(`${API}/api/v1/objects/${id}/preview.gltf`)
-  return <primitive object={scene.clone()} />
+  const greenScene = useMemo(() => {
+    const clone = scene.clone(true)
+    clone.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        child.material = new THREE.MeshStandardMaterial({
+          color: '#53e8b0', roughness: 0.46, metalness: 0.12,
+        })
+        child.castShadow = true
+        child.receiveShadow = true
+      }
+    })
+    return clone
+  }, [scene])
+  return <primitive object={greenScene} />
 }
 
 export function Viewer({ id }: { id: string }) {
