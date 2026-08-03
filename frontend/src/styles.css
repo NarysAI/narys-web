@@ -89,7 +89,6 @@ main { max-width: 1500px; margin: 0 auto; padding: 36px 44px 80px; }
 .detail-panel dd { margin: 0; color: #c4d0cc; overflow-wrap: anywhere; }
 .source-button { width: 100%; }
 .package-source-link { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 42px; margin-top: 10px; border: 1px solid #385049; color: #d8e6e1; font-size: 12px; font-weight: 700; }
-.attribution-link { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 13px; color: var(--muted); font-size: 11px; }
 .error-box { display: flex; flex-direction: column; gap: 5px; margin: 24px 0; padding: 16px 18px; border: 1px solid #7b4a42; background: #2a1916; color: #e8b9ae; font-size: 12px; }
 .empty, .center-state { display: grid; place-items: center; min-height: 320px; text-align: center; color: #71827d; }
 .empty h2, .center-state h2 { margin: 15px 0 0; color: #bdcac6; }

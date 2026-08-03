@@ -11,7 +11,7 @@ function Model({ id }: { id: string }) {
     clone.traverse((child) => {
       if (child instanceof THREE.Mesh) {
         child.material = new THREE.MeshStandardMaterial({
-          color: '#53e8b0', roughness: 0.46, metalness: 0.12,
+          color: '#087a4f', roughness: 0.62, metalness: 0.04,
         })
         child.castShadow = true
         child.receiveShadow = true
@@ -25,15 +25,15 @@ function Model({ id }: { id: string }) {
 export function Viewer({ id }: { id: string }) {
   return (
     <div className="viewer" aria-label="Інтерактивний 3D-переглядач">
-      <Canvas camera={{ position: [3, 2.2, 3], fov: 42 }} shadows>
+      <Canvas camera={{ position: [3, 2.2, 3], fov: 42 }} shadows gl={{ toneMappingExposure: 0.72 }}>
         <color attach="background" args={['#101916']} />
-        <ambientLight intensity={0.8} />
-        <directionalLight position={[5, 7, 4]} intensity={2.2} castShadow />
+        <ambientLight intensity={0.28} />
+        <directionalLight position={[5, 7, 4]} intensity={1.15} color="#d8fff0" castShadow />
         <Suspense fallback={null}>
           <Bounds fit clip observe margin={1.25}>
             <Model id={id} />
           </Bounds>
-          <Environment preset="warehouse" />
+          <Environment preset="warehouse" environmentIntensity={0.45} />
         </Suspense>
         <OrbitControls makeDefault />
         <gridHelper args={[10, 20, '#314b43', '#1c2b27']} position={[0, -1.2, 0]} />

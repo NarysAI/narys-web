@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 3000,
+    watch: { usePolling: true, interval: 500 },
     allowedHosts: ['localhost', '127.0.0.1', 'narysai.drone-age.org'],
     proxy: {
       '/api': {
