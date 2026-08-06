@@ -8,7 +8,6 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-import partcad
 
 from .catalog import CatalogError, CatalogService
 from .auth import AuthService, Principal
@@ -73,7 +72,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="NarysAI Catalog API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="NarysAI Catalog API", version="0.1.1", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
@@ -86,7 +85,6 @@ app.add_middleware(
 def health():
     return {
         "status": "ok",
-        "partcad_version": getattr(partcad, "__version__", "unknown"),
         "packages": len(service.packages),
         "objects": len(service.objects),
     }
