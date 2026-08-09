@@ -63,11 +63,12 @@ def _run(*args: str, cwd: Path | None = None) -> None:
 
 
 class CatalogService:
-    def __init__(self, index_url: str, index_ref: str, cache_dir: Path, private_repo_dir: Path | None = None, public_repo_dir: Path | None = None):
+    def __init__(self, index_url: str, index_ref: str, cache_dir: Path, private_repo_dir: Path | None = None, public_repo_dir: Path | None = None, index_dir: Path | None = None):
         self.index_url = index_url
         self.index_ref = index_ref
         self.cache_dir = cache_dir
-        self.index_dir = cache_dir / "index"
+        self.index_dir = index_dir or cache_dir / "index"
+        self.managed_index = index_dir is None
         self.package_dir = cache_dir / "packages"
         self.preview_dir = cache_dir / "previews"
         self.database_path = cache_dir / "catalog.sqlite3"
@@ -225,7 +226,12 @@ class CatalogService:
             connection.execute("PRAGMA optimize")
 
     def _sync_index(self) -> None:
+        if not self.managed_index:
+            if not self.index_dir.is_dir():
+                raise CatalogError(f"Local index directory is unavailable: {self.index_dir}")
+            return
         if self.index_dir.exists() and (self.index_dir / ".git").exists():
+            _run("git", "remote", "set-url", "origin", self.index_url, cwd=self.index_dir)
             _run("git", "fetch", "origin", self.index_ref, cwd=self.index_dir)
             _run("git", "reset", "--hard", "FETCH_HEAD", cwd=self.index_dir)
         else:
@@ -507,17 +513,30 @@ class CatalogService:
         item = self._objects.get(object_id)
         if not item:
             raise KeyError(object_id)
-        output = self.preview_dir / f"{object_id}.glb"
-        if output.exists():
-            return output
         root = self._object_roots.get(object_id)
         if not root or not item.source_path:
             raise CatalogError("This object does not expose a directly convertible source file")
         source = (root / item.source_path).resolve()
         if not source.is_relative_to(root.resolve()) or not source.exists():
             raise CatalogError(f"Source model is unavailable: {item.source_path}")
+        digest = hashlib.sha256(source.read_bytes()).hexdigest()[:16]
+        output = self.preview_dir / f"{object_id}-{digest}.glb"
+        if output.exists():
+            return output
         try:
-            mesh = trimesh.load(source, force="scene")
+            render_source = source
+            if source.suffix.casefold() == ".scad":
+                render_source = self.preview_dir / f"{object_id}-{digest}.stl"
+                if not render_source.exists():
+                    result = subprocess.run(
+                        ["openscad", "-o", str(render_source), str(source)],
+                        capture_output=True,
+                        text=True,
+                        timeout=180,
+                    )
+                    if result.returncode:
+                        raise CatalogError(result.stderr.strip() or "OpenSCAD conversion failed")
+            mesh = trimesh.load(render_source, force="scene")
             mesh.export(output, file_type="glb")
         except Exception as exc:
             raise CatalogError(f"Preview conversion failed: {exc}") from exc
@@ -527,10 +546,11 @@ class CatalogService:
         item = self._objects.get(object_id)
         if not item:
             raise KeyError(object_id)
-        output = self.preview_dir / f"{object_id}-v2.png"
+        preview = self.preview(object_id)
+        output = self.preview_dir / f"{preview.stem}-v2.png"
         if not output.exists():
             try:
-                scene = trimesh.load(self.preview(object_id), force="scene")
+                scene = trimesh.load(preview, force="scene")
                 vertices: list = []
                 faces: list = []
                 offset = 0

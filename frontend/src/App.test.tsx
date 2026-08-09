@@ -6,7 +6,14 @@ import App from './App'
 
 vi.mock('./components/Viewer', () => ({ Viewer: () => <div>3D viewer</div> }))
 
-const catalog = { name: 'NarysAI Registry', package_count: 1, object_count: 0, categories: [], featured: [] }
+const catalog = {
+  name: 'NarysAI Registry', package_count: 3, object_count: 0, featured: [],
+  categories: [{ name: 'electronics', packages: [
+    { id: 'raspberrypi', path: '//pub/electronics/sbcs/raspberrypi', name: 'raspberrypi', description: '', source_url: '', category: 'electronics', status: 'available' },
+    { id: 'raspberrypi-boards', path: '//pub/electronics/sbcs/raspberrypi/boards', name: 'boards', description: '', source_url: '', category: 'electronics', status: 'available' },
+    { id: 'raspberrypi-rpi5', path: '//pub/electronics/sbcs/raspberrypi/boards/rpi5', name: 'rpi5', description: '', source_url: '', category: 'electronics', status: 'available' },
+  ] }],
+}
 const battery = {
   id: 'ego-battery', package_id: 'ego', package_path: '//pub/electrical/battery/ego',
   name: 'battery-7_5', kind: 'part', description: 'EGO battery', source_type: 'step',
@@ -36,4 +43,12 @@ test('opens an object with a public PartCAD-compatible path', async () => {
     'href', 'https://github.com/NarysAI/PUB/blob/main/electrical/battery/ego/battery-7_5.step',
   )
   expect(screen.getByRole('link', { name: /Пакет у NarysAI/ })).toHaveAttribute('href', '/repository/package/ego')
+})
+
+test('groups child packages under their manufacturer package', async () => {
+  const { hook } = memoryLocation({ path: '/repository' })
+  render(<Router hook={hook}><App /></Router>)
+  const manufacturer = await screen.findByRole('link', { name: 'raspberrypi' })
+  const rpi5 = screen.getByRole('link', { name: 'rpi5' })
+  expect(manufacturer.closest('details')).toContainElement(rpi5)
 })

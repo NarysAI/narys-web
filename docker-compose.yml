@@ -3,8 +3,9 @@ services:
     build:
       context: ./backend
     environment:
-      NARYS_INDEX_URL: ${NARYS_INDEX_URL:-https://github.com/NarysAI/narys-index.git}
+      NARYS_INDEX_URL: ${NARYS_INDEX_URL:-file:///srv/narys/local-index}
       NARYS_INDEX_REF: ${NARYS_INDEX_REF:-main}
+      NARYS_INDEX_DIR: /srv/narys/local-index
       NARYS_CACHE_DIR: ${NARYS_CACHE_DIR:-/srv/narys}
       NARYS_PUBLIC_REPO_DIR: /srv/narys/repositories/PUB
       NARYS_PRIVATE_REPO_DIR: /srv/narys/repositories/indra
@@ -14,6 +15,7 @@ services:
       - "127.0.0.1:${NARYS_API_PORT:-8001}:8000"
     volumes:
       - ./var:/srv/narys
+      - ../narys-index:/srv/narys/local-index:ro
       - ../PUB:/srv/narys/repositories/PUB:ro
       - ../indra:/srv/narys/repositories/indra:ro
       - ./backend/app:/app/app
