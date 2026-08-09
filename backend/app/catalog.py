@@ -25,7 +25,7 @@ class CatalogError(RuntimeError):
 
 
 SCAD_MATERIAL_PATTERN = re.compile(
-    r"^\s*//\s*NARYS_MATERIAL:\s*([A-Za-z0-9_-]+)\s+(#[0-9A-Fa-f]{6})\s*$",
+    r"^\s*//\s*NARYS_MATERIAL:\s*([A-Za-z0-9_-]+)\s*=\s*(#[0-9A-Fa-f]{6})\s*$",
     re.MULTILINE,
 )
 
