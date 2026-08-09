@@ -617,6 +617,10 @@ function ObjectDetail({ item }: { item: CatalogObject }) {
           <p>{item.description}</p>
           <dl>
             <div>
+              <dt>Model role</dt>
+              <dd>{item.model_role === "electronic_component" ? "Electronic component · AI SCAD" : item.model_role === "printable_part" ? "Printable part · FreeCAD master" : "Legacy · migration pending"}</dd>
+            </div>
+            <div>
               <dt>Формат</dt>
               <dd>{item.source_type.toUpperCase()}</dd>
             </div>

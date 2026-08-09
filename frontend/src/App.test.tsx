@@ -20,6 +20,7 @@ const battery = {
   source_path: 'battery-7_5.step', source_url: 'https://github.com/partcad/partcad-electrical-ego',
   semantic_path: 'electrical/battery/ego:battery-7_5',
   visibility: 'public', git_commit: 'main', git_path: 'electrical/battery/ego/battery-7_5.step',
+  model_role: 'electronic_component',
 }
 
 vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
@@ -39,6 +40,7 @@ test('opens an object with a public PartCAD-compatible path', async () => {
   render(<Router hook={hook}><App /></Router>)
   expect(await screen.findByRole('heading', { name: 'battery-7_5' })).toBeInTheDocument()
   expect(screen.getByText('electrical/battery/ego:battery-7_5')).toBeInTheDocument()
+  expect(screen.getByText('Electronic component · AI SCAD')).toBeInTheDocument()
   expect(screen.getByRole('link', { name: /Відкрити файл у PUB/ })).toHaveAttribute(
     'href', 'https://github.com/NarysAI/PUB/blob/main/electrical/battery/ego/battery-7_5.step',
   )

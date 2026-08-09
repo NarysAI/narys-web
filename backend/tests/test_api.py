@@ -1,6 +1,8 @@
 from fastapi.testclient import TestClient
 
-from app.catalog import CatalogObject, Package
+import pytest
+
+from app.catalog import CatalogError, CatalogObject, CatalogService, Package
 from app.main import app, auth, service
 
 
@@ -51,6 +53,23 @@ def test_jinja_partcad_config_supports_math_constants(tmp_path):
     config.write_text("parts:\n  item:\n    desc: '{{ SQRT_2 }}'\n", encoding="utf-8")
     data = service._load_package_yaml(config)
     assert data["parts"]["item"]["desc"].startswith("1.414")
+
+
+def test_electronic_component_requires_scad():
+    CatalogService._validate_model_role("camera", "scad", "camera.scad", "electronic_component")
+    with pytest.raises(CatalogError, match="requires exactly one .scad"):
+        CatalogService._validate_model_role("camera", "freecad", "camera.FCStd", "electronic_component")
+
+
+def test_printable_part_requires_freecad_master():
+    CatalogService._validate_model_role("bracket", "freecad", "bracket.FCStd", "printable_part")
+    with pytest.raises(CatalogError, match="requires exactly one .FCStd"):
+        CatalogService._validate_model_role("bracket", "scad", "bracket.scad", "printable_part")
+
+
+def test_unknown_model_role_is_rejected():
+    with pytest.raises(CatalogError, match="unsupported model_role"):
+        CatalogService._validate_model_role("thing", "scad", "thing.scad", "unknown")
 
 
 def test_local_source_and_compatible_package_archive(tmp_path):
