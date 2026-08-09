@@ -27,9 +27,14 @@ header { position: fixed; inset: 0 0 auto 0; height: 72px; z-index: 20; display:
 .sidebar nav a:hover, .sidebar summary:hover { color: white; background: #15231f; }
 .sidebar nav span { margin-left: auto; color: #5e746d; font: 11px DM Mono; }
 .sidebar details { margin: 3px 0; }
-.sidebar details[open] summary svg { transform: rotate(90deg); }
+.sidebar details[open] > summary > svg { transform: rotate(90deg); }
 .sidebar summary { list-style: none; text-transform: capitalize; }
 .package-link { display: block; padding: 8px 10px 8px 34px; color: #70837d; font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+.package-tree .package-group { margin: 0; }
+.package-tree .package-group > summary { min-height: 34px; color: #82958f; font-size: 12px; }
+.package-tree .package-group > summary > a { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.package-tree .package-group > summary > span { margin-left: auto; }
+.package-tree .package-group .package-link { min-height: 32px; }
 .sidebar-note { display: flex; gap: 12px; margin: 36px 5px 0; padding: 16px; border: 1px solid #244338; background: #11241e; }
 .sidebar-note svg { flex: 0 0 auto; color: var(--mint); }
 .sidebar-note strong { font-size: 12px; }

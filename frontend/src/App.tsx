@@ -170,16 +170,7 @@ function Sidebar({
               <ChevronRight size={15} /> {category.name}
               <span>{category.packages.length}</span>
             </summary>
-            {category.packages.map((pkg) => (
-              <Link
-                className="package-link"
-                key={pkg.id}
-                href={`/repository/package/${pkg.id}`}
-                onClick={close}
-              >
-                {pkg.name}
-              </Link>
-            ))}
+            <PackageTree packages={category.packages} close={close} />
           </details>
         ))}
       </nav>
@@ -191,6 +182,89 @@ function Sidebar({
         </div>
       </div>
     </aside>
+  );
+}
+
+type PackageNode = {
+  package: Package;
+  children: PackageNode[];
+};
+
+function buildPackageTree(packages: Package[]): PackageNode[] {
+  const nodes = new Map(
+    packages.map((pkg) => [pkg.path, { package: pkg, children: [] as PackageNode[] }]),
+  );
+  const roots: PackageNode[] = [];
+
+  for (const node of nodes.values()) {
+    const parent = [...nodes.values()]
+      .filter((candidate) =>
+        node.package.path.startsWith(`${candidate.package.path}/`),
+      )
+      .sort((left, right) => right.package.path.length - left.package.path.length)[0];
+
+    if (parent) parent.children.push(node);
+    else roots.push(node);
+  }
+
+  const sortNodes = (items: PackageNode[]) => {
+    items.sort((left, right) => left.package.name.localeCompare(right.package.name));
+    items.forEach((item) => sortNodes(item.children));
+  };
+  sortNodes(roots);
+  return roots;
+}
+
+function PackageTree({ packages, close }: { packages: Package[]; close: () => void }) {
+  const tree = useMemo(() => buildPackageTree(packages), [packages]);
+  return <div className="package-tree">{tree.map((node) => (
+    <PackageTreeNode key={node.package.id} node={node} close={close} depth={0} />
+  ))}</div>;
+}
+
+function PackageTreeNode({
+  node,
+  close,
+  depth,
+}: {
+  node: PackageNode;
+  close: () => void;
+  depth: number;
+}) {
+  const link = (
+    <Link
+      className="package-link"
+      href={`/repository/package/${node.package.id}`}
+      onClick={close}
+      style={{ paddingLeft: `${34 + depth * 16}px` }}
+    >
+      {node.package.name}
+    </Link>
+  );
+
+  if (!node.children.length) return link;
+
+  return (
+    <details
+      className="package-group"
+      open={node.package.path.includes("/raspberrypi")}
+    >
+      <summary style={{ paddingLeft: `${22 + depth * 16}px` }}>
+        <ChevronRight size={13} />
+        <Link href={`/repository/package/${node.package.id}`} onClick={close}>
+          {node.package.name}
+        </Link>
+        <span>{node.children.length}</span>
+      </summary>
+      {node.children.map((child) => (
+        <PackageTreeNode
+          key={child.package.id}
+          node={child}
+          close={close}
+          depth={depth + 1}
+        />
+      ))}
+    </details>
   );
 }
 
@@ -542,6 +616,10 @@ function ObjectDetail({ item }: { item: CatalogObject }) {
           <h1>{item.name}</h1>
           <p>{item.description}</p>
           <dl>
+            <div>
+              <dt>Model role</dt>
+              <dd>{item.model_role === "electronic_component" ? "Electronic component · AI SCAD" : item.model_role === "printable_part" ? "Printable part · FreeCAD master" : "Legacy · migration pending"}</dd>
+            </div>
             <div>
               <dt>Формат</dt>
               <dd>{item.source_type.toUpperCase()}</dd>

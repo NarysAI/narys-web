@@ -33,11 +33,21 @@ Create a directory in `../PUB` containing a `partcad.yaml` and its source models
 ```yaml
 name: //pub/narysai/my-package
 parts:
-  my-part:
-    type: stl
-    path: models/my-part.stl
-    desc: A manufacturable part.
+  camera-module:
+    type: scad
+    path: camera-module.scad
+    model_role: electronic_component
+    desc: AI-readable representation of a real electronic component.
+  printable-bracket:
+    type: freecad
+    path: printable-bracket.FCStd
+    model_role: printable_part
+    desc: Editable FreeCAD master for a printable custom part.
 ```
+
+The role and source format are enforced by the backend. Electronic, purchased,
+and other real-world components use SCAD only. Printable/manufacturable custom
+parts use FreeCAD FCStd only; STL and STEP are generated derivatives.
 
 Then add an import below the matching folder in [`NarysAI/narys-index`](https://github.com/NarysAI/narys-index):
 

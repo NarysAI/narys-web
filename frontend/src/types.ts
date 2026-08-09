@@ -36,6 +36,7 @@ export type CatalogObject = {
   checksum?: string
   size?: number
   license_status?: string
+  model_role?: 'electronic_component' | 'printable_part'
 }
 
 export type Principal = { key_id: string; name: string; role: 'user' | 'admin' }

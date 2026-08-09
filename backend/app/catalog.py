@@ -50,6 +50,7 @@ class CatalogObject:
     source_url: str
     semantic_path: str
     license: str | None = None
+    model_role: str | None = None
 
 
 def _token(value: str) -> str:
@@ -63,11 +64,12 @@ def _run(*args: str, cwd: Path | None = None) -> None:
 
 
 class CatalogService:
-    def __init__(self, index_url: str, index_ref: str, cache_dir: Path, private_repo_dir: Path | None = None, public_repo_dir: Path | None = None):
+    def __init__(self, index_url: str, index_ref: str, cache_dir: Path, private_repo_dir: Path | None = None, public_repo_dir: Path | None = None, index_dir: Path | None = None):
         self.index_url = index_url
         self.index_ref = index_ref
         self.cache_dir = cache_dir
-        self.index_dir = cache_dir / "index"
+        self.index_dir = index_dir or cache_dir / "index"
+        self.managed_index = index_dir is None
         self.package_dir = cache_dir / "packages"
         self.preview_dir = cache_dir / "previews"
         self.database_path = cache_dir / "catalog.sqlite3"
@@ -176,10 +178,13 @@ class CatalogService:
                     id TEXT PRIMARY KEY, package_id TEXT NOT NULL, package_path TEXT NOT NULL,
                     name TEXT NOT NULL, kind TEXT NOT NULL, description TEXT NOT NULL,
                     source_type TEXT NOT NULL, source_path TEXT, source_url TEXT NOT NULL,
-                    semantic_path TEXT NOT NULL, license TEXT, object_root TEXT,
+                    semantic_path TEXT NOT NULL, license TEXT, model_role TEXT, object_root TEXT,
                     FOREIGN KEY(package_id) REFERENCES packages(id)
                 )"""
             )
+            object_columns = {row[1] for row in connection.execute("PRAGMA table_info(objects)")}
+            if "model_role" not in object_columns:
+                connection.execute("ALTER TABLE objects ADD COLUMN model_role TEXT")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_objects_package_id ON objects(package_id)")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_objects_kind_name ON objects(kind, name)")
             connection.execute(
@@ -216,16 +221,24 @@ class CatalogService:
                 row["object_root"] = str(self._object_roots.get(item.id, ""))
                 rows.append(row)
             connection.executemany(
-                """INSERT INTO objects VALUES (
+                """INSERT INTO objects (
+                    id,package_id,package_path,name,kind,description,source_type,
+                    source_path,source_url,semantic_path,license,model_role,object_root
+                ) VALUES (
                     :id,:package_id,:package_path,:name,:kind,:description,:source_type,
-                    :source_path,:source_url,:semantic_path,:license,:object_root
+                    :source_path,:source_url,:semantic_path,:license,:model_role,:object_root
                 )""",
                 rows,
             )
             connection.execute("PRAGMA optimize")
 
     def _sync_index(self) -> None:
+        if not self.managed_index:
+            if not self.index_dir.is_dir():
+                raise CatalogError(f"Local index directory is unavailable: {self.index_dir}")
+            return
         if self.index_dir.exists() and (self.index_dir / ".git").exists():
+            _run("git", "remote", "set-url", "origin", self.index_url, cwd=self.index_dir)
             _run("git", "fetch", "origin", self.index_ref, cwd=self.index_dir)
             _run("git", "reset", "--hard", "FETCH_HEAD", cwd=self.index_dir)
         else:
@@ -400,8 +413,10 @@ class CatalogService:
             for name, raw in entries.items():
                 spec = raw if isinstance(raw, dict) else {}
                 source_type = str(spec.get("type", "native"))
-                default_ext = "3mf" if source_type == "3mf" else source_type
+                default_ext = "FCStd" if source_type == "freecad" else "3mf" if source_type == "3mf" else source_type
                 source_path = spec.get("path") or (f"{name}.{default_ext}" if source_type not in {"native", "ai"} else None)
+                model_role = str(spec["model_role"]) if spec.get("model_role") else None
+                self._validate_model_role(name, source_type, str(source_path) if source_path else None, model_role)
                 object_id = _token(f"{package.id}|{kind}|{name}")
                 self._objects[object_id] = CatalogObject(
                     id=object_id,
@@ -415,8 +430,25 @@ class CatalogService:
                     source_url=package.web_url or package.source_url.removesuffix(".git"),
                     semantic_path=f"{package.path.removeprefix('//pub/') if not self._is_private_path(package.path) else package.path.removeprefix('//')}:{name}",
                     license=str(license_name) if license_name else None,
+                    model_role=model_role,
                 )
                 self._object_roots[object_id] = root
+
+    @staticmethod
+    def _validate_model_role(name: str, source_type: str, source_path: str | None, model_role: str | None) -> None:
+        # Released objects without a role remain readable until controlled migration.
+        if model_role is None:
+            return
+        suffix = Path(source_path or "").suffix
+        if model_role == "electronic_component":
+            if source_type.casefold() != "scad" or suffix != ".scad":
+                raise CatalogError(f"{name}: electronic_component requires exactly one .scad source")
+            return
+        if model_role == "printable_part":
+            if source_type.casefold() != "freecad" or suffix != ".FCStd":
+                raise CatalogError(f"{name}: printable_part requires exactly one .FCStd source with type: freecad")
+            return
+        raise CatalogError(f"{name}: unsupported model_role: {model_role}")
 
     def package_detail(self, package_id: str, include_private: bool = False) -> dict[str, Any]:
         package = self._packages[package_id]
@@ -507,17 +539,41 @@ class CatalogService:
         item = self._objects.get(object_id)
         if not item:
             raise KeyError(object_id)
-        output = self.preview_dir / f"{object_id}.glb"
-        if output.exists():
-            return output
         root = self._object_roots.get(object_id)
         if not root or not item.source_path:
             raise CatalogError("This object does not expose a directly convertible source file")
         source = (root / item.source_path).resolve()
         if not source.is_relative_to(root.resolve()) or not source.exists():
             raise CatalogError(f"Source model is unavailable: {item.source_path}")
+        digest = hashlib.sha256(source.read_bytes()).hexdigest()[:16]
+        output = self.preview_dir / f"{object_id}-{digest}.glb"
+        if output.exists():
+            return output
         try:
-            mesh = trimesh.load(source, force="scene")
+            render_source = source
+            if source.suffix.casefold() == ".scad":
+                render_source = self.preview_dir / f"{object_id}-{digest}.stl"
+                if not render_source.exists():
+                    result = subprocess.run(
+                        ["openscad", "-o", str(render_source), str(source)],
+                        capture_output=True,
+                        text=True,
+                        timeout=180,
+                    )
+                    if result.returncode:
+                        raise CatalogError(result.stderr.strip() or "OpenSCAD conversion failed")
+            elif source.suffix.casefold() == ".fcstd":
+                render_source = self.preview_dir / f"{object_id}-{digest}.stl"
+                if not render_source.exists():
+                    result = subprocess.run(
+                        ["/usr/bin/python3", "/app/app/freecad_export.py", str(source), str(render_source)],
+                        capture_output=True,
+                        text=True,
+                        timeout=180,
+                    )
+                    if result.returncode:
+                        raise CatalogError(result.stderr.strip() or "FreeCAD conversion failed")
+            mesh = trimesh.load(render_source, force="scene")
             mesh.export(output, file_type="glb")
         except Exception as exc:
             raise CatalogError(f"Preview conversion failed: {exc}") from exc
@@ -527,10 +583,11 @@ class CatalogService:
         item = self._objects.get(object_id)
         if not item:
             raise KeyError(object_id)
-        output = self.preview_dir / f"{object_id}-v2.png"
+        preview = self.preview(object_id)
+        output = self.preview_dir / f"{preview.stem}-v2.png"
         if not output.exists():
             try:
-                scene = trimesh.load(self.preview(object_id), force="scene")
+                scene = trimesh.load(preview, force="scene")
                 vertices: list = []
                 faces: list = []
                 offset = 0
