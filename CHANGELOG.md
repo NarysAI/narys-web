@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.1] - 2026-08-09
+
+### Added
+
+- Color-preserving OpenSCAD previews through opt-in `NARYS_MATERIAL`
+  declarations. Each semantic layer is rendered independently and assembled
+  into a multi-material GLB rather than flattened through a single-color STL.
+
 ## [0.2.0] - 2026-08-09
 
 ### Added

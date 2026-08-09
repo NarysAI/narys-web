@@ -2,11 +2,24 @@ from fastapi.testclient import TestClient
 
 import pytest
 
-from app.catalog import CatalogError, CatalogObject, CatalogService, Package
+from app.catalog import CatalogError, CatalogObject, CatalogService, Package, scad_materials
 from app.main import app, auth, service
 
 
 client = TestClient(app)
+
+
+def test_scad_material_declarations(tmp_path):
+    source = tmp_path / "colored.scad"
+    source.write_text(
+        "// NARYS_MATERIAL: housing=#25282B\n"
+        "// NARYS_MATERIAL: contacts=#D6A83B\n",
+        encoding="utf-8",
+    )
+    assert scad_materials(source) == [
+        ("housing", (37, 40, 43, 255)),
+        ("contacts", (214, 168, 59, 255)),
+    ]
 
 
 def test_health_contract():
