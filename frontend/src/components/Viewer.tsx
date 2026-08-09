@@ -6,20 +6,20 @@ import { API, authorizedBlobUrl } from '../api'
 
 function Model({ id }: { id: string }) {
   const { scene } = useGLTF(id)
-  const greenScene = useMemo(() => {
+  const previewScene = useMemo(() => {
     const clone = scene.clone(true)
     clone.traverse((child) => {
       if (child instanceof THREE.Mesh) {
-        child.material = new THREE.MeshStandardMaterial({
-          color: '#109b68', roughness: 0.60, metalness: 0.04,
-        })
+        child.material = Array.isArray(child.material)
+          ? child.material.map((material) => material.clone())
+          : child.material.clone()
         child.castShadow = true
         child.receiveShadow = true
       }
     })
     return clone
   }, [scene])
-  return <primitive object={greenScene} />
+  return <primitive object={previewScene} />
 }
 
 export function Viewer({ id, privateObject = false }: { id: string; privateObject?: boolean }) {

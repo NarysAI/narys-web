@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import math
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -21,6 +22,22 @@ from PIL import Image, ImageDraw
 
 class CatalogError(RuntimeError):
     pass
+
+
+SCAD_MATERIAL_PATTERN = re.compile(
+    r"^\s*//\s*NARYS_MATERIAL:\s*([A-Za-z0-9_-]+)\s*=\s*(#[0-9A-Fa-f]{6})\s*$",
+    re.MULTILINE,
+)
+
+
+def scad_materials(source: Path) -> list[tuple[str, tuple[int, int, int, int]]]:
+    """Read opt-in material declarations used for color-preserving SCAD previews."""
+    text = source.read_text(encoding="utf-8")
+    materials: list[tuple[str, tuple[int, int, int, int]]] = []
+    for name, color in SCAD_MATERIAL_PATTERN.findall(text):
+        rgb = tuple(int(color[index : index + 2], 16) for index in (1, 3, 5))
+        materials.append((name, (*rgb, 255)))
+    return materials
 
 
 @dataclass
@@ -552,6 +569,38 @@ class CatalogService:
         try:
             render_source = source
             if source.suffix.casefold() == ".scad":
+                materials = scad_materials(source)
+                if materials:
+                    scene = trimesh.Scene()
+                    for name, color in materials:
+                        material_source = self.preview_dir / f"{object_id}-{digest}-{name}.stl"
+                        if not material_source.exists():
+                            result = subprocess.run(
+                                [
+                                    "openscad",
+                                    "-D",
+                                    f'narys_material="{name}"',
+                                    "-o",
+                                    str(material_source),
+                                    str(source),
+                                ],
+                                capture_output=True,
+                                text=True,
+                                timeout=180,
+                            )
+                            if result.returncode:
+                                raise CatalogError(result.stderr.strip() or "OpenSCAD conversion failed")
+                        geometry = trimesh.load(material_source, force="mesh")
+                        if isinstance(geometry, trimesh.Trimesh) and len(geometry.faces):
+                            geometry.visual = trimesh.visual.ColorVisuals(
+                                mesh=geometry,
+                                face_colors=color,
+                            )
+                            scene.add_geometry(geometry, geom_name=name, node_name=name)
+                    if not scene.geometry:
+                        raise CatalogError("OpenSCAD material preview produced no geometry")
+                    scene.export(output, file_type="glb")
+                    return output
                 render_source = self.preview_dir / f"{object_id}-{digest}.stl"
                 if not render_source.exists():
                     result = subprocess.run(
