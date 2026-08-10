@@ -7,9 +7,17 @@ export type Package = {
   web_url?: string
   category: string
   status: string
+  entry_type?: 'package' | 'project'
+  access?: 'public' | 'private'
+  canonical_repo_url?: string
+  contribution_url?: string
+  issues_url?: string
+  default_branch?: string
+  current_drawing?: string
+  pub_url?: string
   namespace?: string
   visibility?: 'public' | 'private'
-  repository?: 'PUB' | 'indra'
+  repository?: 'PUB' | 'indra' | 'git'
   git_commit?: string
   upstream_url?: string
   license_status?: string
@@ -37,6 +45,9 @@ export type CatalogObject = {
   size?: number
   license_status?: string
   model_role?: 'electronic_component' | 'printable_part'
+  entry_type?: 'package' | 'project'
+  canonical_repo_url?: string
+  default_branch?: string
 }
 
 export type Principal = { key_id: string; name: string; role: 'user' | 'admin' }

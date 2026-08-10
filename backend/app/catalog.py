@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import math
+import os
 import re
 import shutil
 import sqlite3
@@ -52,6 +53,14 @@ class Package:
     revision: str | None = None
     category: str = "other"
     status: str = "available"
+    entry_type: str = "package"
+    access: str | None = None
+    canonical_repo_url: str | None = None
+    contribution_url: str | None = None
+    issues_url: str | None = None
+    default_branch: str = "main"
+    current_drawing: str | None = None
+    pub_url: str | None = None
 
 
 @dataclass
@@ -74,14 +83,30 @@ def _token(value: str) -> str:
     return base64.urlsafe_b64encode(value.encode()).decode().rstrip("=")
 
 
-def _run(*args: str, cwd: Path | None = None) -> None:
-    result = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=180)
+def _run(*args: str, cwd: Path | None = None, env: dict[str, str] | None = None) -> None:
+    result = subprocess.run(
+        args,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=180,
+        env={**os.environ, **(env or {})},
+    )
     if result.returncode:
         raise CatalogError((result.stderr or result.stdout).strip())
 
 
 class CatalogService:
-    def __init__(self, index_url: str, index_ref: str, cache_dir: Path, private_repo_dir: Path | None = None, public_repo_dir: Path | None = None, index_dir: Path | None = None):
+    def __init__(
+        self,
+        index_url: str,
+        index_ref: str,
+        cache_dir: Path,
+        private_repo_dir: Path | None = None,
+        public_repo_dir: Path | None = None,
+        index_dir: Path | None = None,
+        github_token_file: Path | None = None,
+    ):
         self.index_url = index_url
         self.index_ref = index_ref
         self.cache_dir = cache_dir
@@ -92,6 +117,8 @@ class CatalogService:
         self.database_path = cache_dir / "catalog.sqlite3"
         self.private_repo_dir = private_repo_dir
         self.public_repo_dir = public_repo_dir
+        self.github_token_file = github_token_file
+        self.git_askpass = cache_dir / ".git-askpass.sh"
         self._packages: dict[str, Package] = {}
         self._objects: dict[str, CatalogObject] = {}
         self._object_roots: dict[str, Path] = {}
@@ -115,19 +142,21 @@ class CatalogService:
         return path == "//private" or path.startswith("//private/")
 
     def _package_payload(self, package: Package) -> dict[str, Any]:
-        private = self._is_private_path(package.path)
+        private = self._is_private_path(package.path) or package.access == "private"
         return {
             **asdict(package),
             "namespace": "//private" if private else "//pub",
             "visibility": "private" if private else "public",
-            "repository": "indra" if private else "PUB",
-            "git_commit": package.revision or "main",
-            "upstream_url": package.source_url,
+            "repository": "indra" if private else "git" if package.entry_type == "project" else "PUB",
+            "git_commit": package.revision or package.default_branch,
+            "upstream_url": package.canonical_repo_url or package.source_url,
             "license_status": "unverified",
         }
 
     def _object_payload(self, item: CatalogObject) -> dict[str, Any]:
-        private = self._is_private_path(item.package_path)
+        package = self._packages.get(item.package_id)
+        private = self._is_private_path(item.package_path) or package is not None and package.access == "private"
+        project = package is not None and package.entry_type == "project"
         source = self._object_roots.get(item.id)
         file_path = (source / item.source_path).resolve() if source and item.source_path else None
         checksum = None
@@ -144,10 +173,13 @@ class CatalogService:
             **asdict(item),
             "namespace": "//private" if private else "//pub",
             "visibility": "private" if private else "public",
-            "repository": "indra" if private else "PUB",
-            "git_path": "/".join(filter(None, (package_relative, item.source_path))),
-            "git_commit": "main",
-            "upstream_url": item.source_url,
+            "repository": "indra" if private else "git" if project else "PUB",
+            "git_path": item.source_path if project else "/".join(filter(None, (package_relative, item.source_path))),
+            "git_commit": package.revision or package.default_branch if package else "main",
+            "upstream_url": package.canonical_repo_url if package and package.canonical_repo_url else item.source_url,
+            "entry_type": package.entry_type if package else "package",
+            "canonical_repo_url": package.canonical_repo_url if package else None,
+            "default_branch": package.default_branch if package else "main",
             "checksum": checksum,
             "size": size,
             "license_status": "verified" if item.license else "unverified",
@@ -184,12 +216,28 @@ class CatalogService:
                 """CREATE TABLE IF NOT EXISTS packages (
                     id TEXT PRIMARY KEY, path TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
                     description TEXT NOT NULL, source_url TEXT NOT NULL, web_url TEXT,
-                    rel_path TEXT, revision TEXT, category TEXT NOT NULL, status TEXT NOT NULL
+                    rel_path TEXT, revision TEXT, category TEXT NOT NULL, status TEXT NOT NULL,
+                    entry_type TEXT NOT NULL DEFAULT 'package', access TEXT,
+                    canonical_repo_url TEXT, contribution_url TEXT, issues_url TEXT,
+                    default_branch TEXT NOT NULL DEFAULT 'main', current_drawing TEXT,
+                    pub_url TEXT
                 )"""
             )
             package_columns = {row[1] for row in connection.execute("PRAGMA table_info(packages)")}
-            if "revision" not in package_columns:
-                connection.execute("ALTER TABLE packages ADD COLUMN revision TEXT")
+            package_migrations = {
+                "revision": "TEXT",
+                "entry_type": "TEXT NOT NULL DEFAULT 'package'",
+                "access": "TEXT",
+                "canonical_repo_url": "TEXT",
+                "contribution_url": "TEXT",
+                "issues_url": "TEXT",
+                "default_branch": "TEXT NOT NULL DEFAULT 'main'",
+                "current_drawing": "TEXT",
+                "pub_url": "TEXT",
+            }
+            for column, declaration in package_migrations.items():
+                if column not in package_columns:
+                    connection.execute(f"ALTER TABLE packages ADD COLUMN {column} {declaration}")
             connection.execute(
                 """CREATE TABLE IF NOT EXISTS objects (
                     id TEXT PRIMARY KEY, package_id TEXT NOT NULL, package_path TEXT NOT NULL,
@@ -228,8 +276,12 @@ class CatalogService:
             connection.execute("DELETE FROM packages")
             connection.executemany(
                 """INSERT INTO packages
-                (id,path,name,description,source_url,web_url,rel_path,revision,category,status)
-                VALUES (:id,:path,:name,:description,:source_url,:web_url,:rel_path,:revision,:category,:status)""",
+                (id,path,name,description,source_url,web_url,rel_path,revision,category,status,
+                 entry_type,access,canonical_repo_url,contribution_url,issues_url,
+                 default_branch,current_drawing,pub_url)
+                VALUES (:id,:path,:name,:description,:source_url,:web_url,:rel_path,:revision,:category,:status,
+                 :entry_type,:access,:canonical_repo_url,:contribution_url,:issues_url,
+                 :default_branch,:current_drawing,:pub_url)""",
                 [asdict(package) for package in self.packages],
             )
             rows = []
@@ -256,12 +308,59 @@ class CatalogService:
             return
         if self.index_dir.exists() and (self.index_dir / ".git").exists():
             _run("git", "remote", "set-url", "origin", self.index_url, cwd=self.index_dir)
-            _run("git", "fetch", "origin", self.index_ref, cwd=self.index_dir)
-            _run("git", "reset", "--hard", "FETCH_HEAD", cwd=self.index_dir)
+            _run("git", "fetch", "origin", self.index_ref, cwd=self.index_dir, env=self._git_environment())
+            _run("git", "reset", "--hard", "FETCH_HEAD", cwd=self.index_dir, env=self._git_environment())
         else:
             if self.index_dir.exists():
                 shutil.rmtree(self.index_dir)
-            _run("git", "clone", "--depth", "1", "--branch", self.index_ref, self.index_url, str(self.index_dir))
+            _run(
+                "git", "clone", "--depth", "1", "--branch", self.index_ref,
+                self.index_url, str(self.index_dir), env=self._git_environment()
+            )
+
+    def _git_environment(self) -> dict[str, str]:
+        environment = {"GIT_TERMINAL_PROMPT": "0"}
+        if not self.github_token_file or not self.github_token_file.is_file():
+            return environment
+        token = self.github_token_file.read_text(encoding="utf-8").strip()
+        if not token:
+            return environment
+        if not self.git_askpass.exists():
+            self.git_askpass.write_text(
+                "#!/bin/sh\n"
+                "case \"$1\" in\n"
+                "  *Username*) printf '%s\\n' \"$GIT_USERNAME\" ;;\n"
+                "  *) printf '%s\\n' \"$GIT_PASSWORD\" ;;\n"
+                "esac\n",
+                encoding="utf-8",
+            )
+            self.git_askpass.chmod(0o700)
+        return {
+            **environment,
+            "GIT_ASKPASS": str(self.git_askpass),
+            "GIT_USERNAME": "x-access-token",
+            "GIT_PASSWORD": token,
+        }
+
+    @staticmethod
+    def _project_metadata(data: dict[str, Any]) -> dict[str, Any]:
+        metadata = data.get("narys_project", {})
+        return metadata if isinstance(metadata, dict) else {}
+
+    @classmethod
+    def _package_project_fields(cls, data: dict[str, Any], default_access: str) -> dict[str, Any]:
+        metadata = cls._project_metadata(data)
+        kind = str(metadata.get("kind", "package"))
+        return {
+            "entry_type": "project" if kind == "project" else "package",
+            "access": str(metadata.get("access", default_access)),
+            "canonical_repo_url": metadata.get("canonical_repo"),
+            "contribution_url": metadata.get("contribution_url"),
+            "issues_url": metadata.get("issues_url"),
+            "default_branch": str(metadata.get("default_branch", "main")),
+            "current_drawing": metadata.get("current_drawing"),
+            "pub_url": metadata.get("pub_url"),
+        }
 
     def _read_index(self) -> None:
         for config_path in self.index_dir.rglob("partcad.yaml"):
@@ -276,16 +375,18 @@ class CatalogService:
                     continue
                 path = "/".join(filter(None, ("//pub", category_path, str(name))))
                 package_id = _token(path)
+                project_fields = self._package_project_fields(spec, "public")
                 self._packages[package_id] = Package(
                     id=package_id,
                     path=path,
-                    name=str(name),
+                    name=str(spec.get("display_name", name)),
                     description=str(spec.get("desc", "PartCAD package")),
                     source_url=str(spec["url"]),
                     web_url=spec.get("web"),
                     rel_path=spec.get("relPath"),
                     revision=spec.get("revision"),
                     category=relative.parts[0] if relative.parts else "root",
+                    **project_fields,
                 )
 
     def _read_private_index(self) -> None:
@@ -299,20 +400,29 @@ class CatalogService:
         if not isinstance(imports, dict):
             return
         for name, spec in imports.items():
-            if not isinstance(spec, dict) or not spec.get("path"):
+            if not isinstance(spec, dict):
                 continue
-            relative = str(spec["path"]).strip("/")
+            is_git = spec.get("type") == "git" and spec.get("url")
+            if not is_git and not spec.get("path"):
+                continue
+            relative = str(spec.get("catalog_path") or spec.get("path") or name).strip("/")
             package_path = f"//private/{relative}"
             package_id = _token(package_path)
+            project_fields = self._package_project_fields(spec, "private")
+            if is_git and project_fields["entry_type"] == "package":
+                project_fields["entry_type"] = "project"
+            project_fields["access"] = "private"
             self._packages[package_id] = Package(
                 id=package_id,
                 path=package_path,
-                name=str(name),
+                name=str(spec.get("display_name", name)),
                 description=str(spec.get("desc", "Private NarysAI package")),
-                source_url=self.private_repo_dir.as_uri(),
-                rel_path=relative,
-                revision="main",
-                category="private",
+                source_url=str(spec["url"]) if is_git else self.private_repo_dir.as_uri(),
+                web_url=spec.get("web"),
+                rel_path=spec.get("relPath") if is_git else relative,
+                revision=str(spec.get("revision", "main")),
+                category=str(spec.get("category", "private")),
+                **project_fields,
             )
 
     def load_package(self, package_id: str) -> dict[str, Any]:
@@ -331,14 +441,14 @@ class CatalogService:
             if package.revision:
                 clone_args.extend(["--branch", package.revision])
             clone_args.extend([package.source_url, str(temporary)])
-            _run(*clone_args)
+            _run(*clone_args, env=self._git_environment())
             try:
                 temporary.rename(checkout)
             except FileExistsError:
                 shutil.rmtree(temporary, ignore_errors=True)
         if not local_repository and checkout not in self._updated_checkouts:
-            _run("git", "fetch", "origin", package.revision or "HEAD", cwd=checkout)
-            _run("git", "reset", "--hard", "FETCH_HEAD", cwd=checkout)
+            _run("git", "fetch", "origin", package.revision or "HEAD", cwd=checkout, env=self._git_environment())
+            _run("git", "reset", "--hard", "FETCH_HEAD", cwd=checkout, env=self._git_environment())
             self._updated_checkouts.add(checkout)
         requested_path = checkout / package.rel_path if package.rel_path else checkout
         if requested_path.is_file():
@@ -367,6 +477,11 @@ class CatalogService:
                 current_root = current_config.parent
                 if current_config == config_path:
                     current_package = package
+                    metadata = self._package_project_fields(data, package.access or "public")
+                    if metadata["entry_type"] == "project":
+                        for field, value in metadata.items():
+                            if value is not None:
+                                setattr(current_package, field, value)
                 else:
                     relative = current_root.relative_to(root).as_posix()
                     declared_path = str(data.get("name", ""))
@@ -384,6 +499,14 @@ class CatalogService:
                         revision=package.revision,
                         category=package.category,
                         status="loaded",
+                        access=package.access,
+                        entry_type=package.entry_type,
+                        canonical_repo_url=package.canonical_repo_url,
+                        contribution_url=package.contribution_url,
+                        issues_url=package.issues_url,
+                        default_branch=package.default_branch,
+                        current_drawing=package.current_drawing,
+                        pub_url=package.pub_url,
                     )
                     self._packages[nested_id] = current_package
                 self._register_objects(current_package, current_root, data)

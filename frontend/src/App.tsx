@@ -149,14 +149,14 @@ function Sidebar({
   return (
     <aside className={open ? "sidebar open" : "sidebar"}>
       <div className="sidebar-head">
-        <span>Каталог пакетів</span>
+        <span>Єдиний каталог</span>
         <button className="icon-button sidebar-close" onClick={close}>
           <X />
         </button>
       </div>
       <nav>
         <Link href="/repository" onClick={close}>
-          <Database size={17} /> Усі пакети{" "}
+          <Database size={17} /> Усі записи{" "}
           <span>{catalog?.package_count ?? 0}</span>
         </Link>
         {principal?.role === "admin" && (
@@ -167,7 +167,7 @@ function Sidebar({
         {catalog?.categories.map((category) => (
           <details key={category.name} open={category.name === "narysai"}>
             <summary>
-              <ChevronRight size={15} /> {category.name}
+              <ChevronRight size={15} /> {category.name.toLowerCase() === "fpv" ? "FPV" : category.name}
               <span>{category.packages.length}</span>
             </summary>
             <PackageTree packages={category.packages} close={close} />
@@ -306,6 +306,8 @@ function Home({
 }) {
   const { principal } = useContext(AuthContext);
   const [scope, setScope] = useState<"public" | "private">("public");
+  const [entryFilter, setEntryFilter] = useState<"all" | "package" | "project">("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
   const params = new URLSearchParams(location.search);
   const query = params.get("q") || "";
   const [results, setResults] = useState<
@@ -328,7 +330,21 @@ function Home({
     () =>
       catalog?.categories
         .flatMap((item) => item.packages)
-        .filter((item) => item.visibility === scope) ?? [],
+        .filter((item) => item.visibility === scope)
+        .filter((item) => entryFilter === "all" || (item.entry_type || "package") === entryFilter)
+        .filter((item) => categoryFilter === "all" || item.category === categoryFilter) ?? [],
+    [catalog, scope, entryFilter, categoryFilter],
+  );
+  const categories = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          catalog?.categories
+            .flatMap((item) => item.packages)
+            .filter((item) => item.visibility === scope)
+            .map((item) => item.category) ?? [],
+        ),
+      ).sort(),
     [catalog, scope],
   );
   const doRefresh = async () => {
@@ -378,13 +394,13 @@ function Home({
             <span className="live-dot" /> Локальний інженерний реєстр
           </span>
           <h1>
-            Креслення, готові
+            Креслення і проєкти,
             <br />
             до роботи з <em>ШІ.</em>
           </h1>
           <p>
-            NarysAI об’єднує відкриті PartCAD-пакети та ваші власні моделі в
-            одному локальному, версійованому каталозі.
+            NarysAI об’єднує готові PartCAD-пакети, відкриті Git-проєкти та
+            захищені командні розробки в одному версійованому каталозі.
           </p>
           <div className="hero-actions">
             <a href="#narys">
@@ -401,7 +417,7 @@ function Home({
         <div className="hero-stat">
           <Boxes />
           <strong>{catalog?.package_count ?? "—"}</strong>
-          <span>доступних пакетів</span>
+          <span>доступних записів</span>
           <div>
             <span>{catalog?.object_count ?? 0}</span> об’єктів уже
             проіндексовано
@@ -429,13 +445,27 @@ function Home({
           </button>
         </div>
       )}
+      <div className="catalog-filters" aria-label="Фільтри каталогу">
+        <div className="scope-switch" role="group" aria-label="Тип запису">
+          <button className={entryFilter === "all" ? "active" : ""} onClick={() => setEntryFilter("all")}>Усі</button>
+          <button className={entryFilter === "package" ? "active" : ""} onClick={() => setEntryFilter("package")}>Готові креслення</button>
+          <button className={entryFilter === "project" ? "active" : ""} onClick={() => setEntryFilter("project")}>Проєкти</button>
+        </div>
+        <label>
+          <span>Категорія</span>
+          <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
+            <option value="all">Усі категорії</option>
+            {categories.map((category) => (
+              <option key={category} value={category}>{category.toLowerCase() === "fpv" ? "FPV" : category}</option>
+            ))}
+          </select>
+        </label>
+      </div>
       <section id="narys" className="section">
         <div className="section-head">
           <div>
             <span className="eyebrow">NarysAI {scope}</span>
-            <h2>
-              {scope === "public" ? "Публічні пакети" : "Приватні пакети"}
-            </h2>
+            <h2>{scope === "public" ? "Публічний каталог" : "Приватний каталог"}</h2>
           </div>
           <span>{scopedPackages.length} пакетів</span>
         </div>
@@ -465,17 +495,18 @@ function Home({
 }
 
 function PackageCard({ pkg }: { pkg: Package }) {
+  const project = pkg.entry_type === "project";
   return (
     <Link className="package-card" href={`/repository/package/${pkg.id}`}>
       <div>
-        <Box />
-        <span>{pkg.status}</span>
+        {project ? <GitFork /> : <Box />}
+        <span>{project ? "project" : pkg.status}</span>
       </div>
       <small>{pkg.path}</small>
       <h3>{pkg.name}</h3>
       <p>{pkg.description}</p>
       <footer>
-        Відкрити пакет <ChevronRight size={17} />
+        {project ? "Відкрити проєкт" : "Відкрити пакет"} <ChevronRight size={17} />
       </footer>
     </Link>
   );
@@ -500,6 +531,7 @@ function PackagePage() {
       </main>
     );
   if (!data) return <Loading />;
+  const project = data.entry_type === "project";
   return (
     <main>
       <div className="breadcrumbs">
@@ -509,12 +541,12 @@ function PackagePage() {
       </div>
       <div className="page-title">
         <div>
-          <span className="eyebrow">PartCAD package</span>
+          <span className="eyebrow">{project ? "NarysAI project" : "PartCAD package"}</span>
           <h1>{data.name}</h1>
           <p>{data.description}</p>
         </div>
         <div className="page-actions">
-          {data.visibility === "public" && (
+          {!project && data.visibility === "public" && (
             <a
               href={`https://github.com/NarysAI/PUB/tree/${data.git_commit || "main"}/${data.path.replace("//pub/", "")}`}
               target="_blank"
@@ -523,16 +555,41 @@ function PackagePage() {
               <Download size={16} /> Відкрити пакет у PUB
             </a>
           )}
-          <a
-            className="upstream-link"
-            href={data.upstream_url || data.source_url}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Upstream <ExternalLink size={16} />
-          </a>
+          {project && data.canonical_repo_url && (
+            <a href={data.canonical_repo_url} target="_blank" rel="noreferrer">
+              <GitFork size={16} /> Git repository
+            </a>
+          )}
+          {project && data.issues_url && (
+            <a className="upstream-link" href={data.issues_url} target="_blank" rel="noreferrer">
+              Issues <ExternalLink size={16} />
+            </a>
+          )}
+          {project && data.contribution_url && (
+            <a className="upstream-link" href={data.contribution_url} target="_blank" rel="noreferrer">
+              Долучитися <ExternalLink size={16} />
+            </a>
+          )}
+          {project && data.pub_url && (
+            <a className="upstream-link" href={data.pub_url} target="_blank" rel="noreferrer">
+              Покажчик у PUB <ExternalLink size={16} />
+            </a>
+          )}
+          {!project && (
+            <a className="upstream-link" href={data.upstream_url || data.source_url} target="_blank" rel="noreferrer">
+              Upstream <ExternalLink size={16} />
+            </a>
+          )}
         </div>
       </div>
+      {project && (
+        <dl className="project-meta">
+          <div><dt>Доступ</dt><dd>{data.visibility === "private" ? "Private" : "Open"}</dd></div>
+          <div><dt>Гілка</dt><dd>{data.default_branch || "main"}</dd></div>
+          <div><dt>Креслення</dt><dd>{data.current_drawing || "не вказано"}</dd></div>
+          <div><dt>Clone URL</dt><dd>{data.canonical_repo_url ? `${data.canonical_repo_url}.git` : "захищено"}</dd></div>
+        </dl>
+      )}
       {data.objects.length ? (
         <div className="object-grid">
           {data.objects.map((item) => (
@@ -595,7 +652,9 @@ function ObjectDetail({ item }: { item: CatalogObject }) {
     const data = await createDownloadTicket(item.id);
     window.location.assign(`${API}/api/v1/downloads/${data.ticket}`);
   };
-  const gitUrl = `https://github.com/NarysAI/PUB/blob/${item.git_commit || "main"}/${item.git_path || ""}`;
+  const gitUrl = item.entry_type === "project" && item.canonical_repo_url
+    ? `${item.canonical_repo_url}/blob/${item.git_commit || item.default_branch || "main"}/${item.git_path || ""}`
+    : `https://github.com/NarysAI/PUB/blob/${item.git_commit || "main"}/${item.git_path || ""}`;
   return (
     <main>
       <div className="breadcrumbs">
@@ -657,7 +716,7 @@ function ObjectDetail({ item }: { item: CatalogObject }) {
                 target="_blank"
                 rel="noreferrer"
               >
-                <Download size={17} /> Відкрити файл у PUB
+                <Download size={17} /> {item.entry_type === "project" ? "Відкрити файл у Git" : "Відкрити файл у PUB"}
               </a>
             )
           )}

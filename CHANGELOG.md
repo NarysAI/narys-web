@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.3.0] - 2026-08-10
+
+### Added
+
+- Unified catalog support for released packages and active public/private Git
+  projects without changing existing package or object routes.
+- Project metadata, FPV/category filtering, contribution and issue links, and
+  canonical Git file links.
+- Standalone private Git imports through the `indra` index and read-only GitHub
+  authentication through a token-file/askpass flow.
+
+### Security
+
+- Guest requests cannot enumerate private packages or trigger a private clone.
+- Git credentials are excluded from repository URLs, SQLite, API payloads, and
+  the generated askpass script.
+
+
 ## [0.2.1] - 2026-08-09
 
 ### Added
