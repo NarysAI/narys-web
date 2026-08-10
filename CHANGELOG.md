@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.3.3] - 2026-08-10
+
+### Fixed
+
+- Hide package-only navigation containers and empty package records from the
+  public catalog, search results and direct package pages while retaining their
+  populated descendants.
+- Remove the legacy preview special case that existed only for the retired
+  `std/metric/m` slot sketches.
+
 ## [0.3.2] - 2026-08-10
 
 ### Fixed
