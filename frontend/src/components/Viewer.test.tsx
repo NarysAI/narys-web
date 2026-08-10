@@ -31,8 +31,8 @@ test('builds a stable preview URL from applied parameters', () => {
 })
 
 test('builds a preview URL for a selected representation', () => {
-  render(<Viewer id="h30" representationFormat="stl" />)
+  render(<Viewer id="h30" representationFormat="stl" revisionKey="1.1" />)
   expect(useGLTFMock).toHaveBeenCalledWith(
-    '/api/v1/objects/h30/representations/stl/preview.gltf',
+    '/api/v1/objects/h30/representations/stl/preview.gltf?v=1.1',
   )
 })

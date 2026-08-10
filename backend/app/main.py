@@ -156,6 +156,7 @@ def preview(
         if len({key for key, _ in query_items}) != len(query_items):
             raise CatalogError("Duplicate preview parameter")
         overrides = dict(query_items)
+        overrides.pop("v", None)
         return FileResponse(
             service.preview(object_id, overrides),
             media_type="model/gltf-binary",
@@ -193,8 +194,10 @@ def representation_preview(
         query_items = list(request.query_params.multi_items())
         if len({key for key, _ in query_items}) != len(query_items):
             raise CatalogError("Duplicate preview parameter")
+        overrides = dict(query_items)
+        overrides.pop("v", None)
         return FileResponse(
-            service.preview(object_id, dict(query_items), source_format),
+            service.preview(object_id, overrides, source_format),
             media_type="model/gltf-binary",
             filename=f"{object_id}-{source_format}.glb",
         )
