@@ -4,7 +4,11 @@ import { Router } from 'wouter'
 import { memoryLocation } from 'wouter/memory-location'
 import App from './App'
 
-vi.mock('./components/Viewer', () => ({ Viewer: () => <div>3D viewer</div> }))
+vi.mock('./components/Viewer', () => ({
+  Viewer: ({ parameters }: { parameters?: Record<string, number | string> }) => (
+    <div data-testid="viewer-parameters">{JSON.stringify(parameters || {})}</div>
+  ),
+}))
 
 const catalog = {
   name: 'NarysAI Registry', package_count: 3, object_count: 0, featured: [],
@@ -33,10 +37,31 @@ const caseProject = {
   issues_url: 'https://github.com/NarysAI/Case_holder/issues', current_drawing: 'drawing-v1.0.0',
   pub_url: 'https://github.com/NarysAI/PUB/tree/main/fpv/case-holder', objects: [],
 }
+const standoff = {
+  id: 'standoff-mf', package_id: 'standoffs', package_path: '//pub/std/metric/standoffs',
+  name: 'hex-standoff-male-female', kind: 'part', description: 'Metric standoff',
+  source_type: 'scad', source_path: 'hex-standoff-male-female.scad', source_url: '',
+  semantic_path: 'std/metric/standoffs:hex-standoff-male-female', visibility: 'public',
+  parameters: {
+    thread_diameter: { type: 'float', default: 3, min: 2, max: 6, hidden: true, options: [2, 3] },
+    body_length: { type: 'float', default: 10, min: 4, max: 100, options: [6, 10] },
+  },
+  parameter_presets: [
+    { id: 'm2', label: 'M2 · SW4 · L6', parameters: { thread_diameter: 2, body_length: 6 } },
+    { id: 'm3', label: 'M3 · SW5.5 · L10', parameters: { thread_diameter: 3, body_length: 10 } },
+  ],
+  default_parameter_preset: 'm3',
+}
 
 vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
   const value = String(input)
-  const payload = value.includes('/by-path/') ? battery : value.includes('/packages/case-project') ? caseProject : catalog
+  const payload = value.includes('std/metric/standoffs')
+    ? standoff
+    : value.includes('/by-path/')
+      ? battery
+      : value.includes('/packages/case-project')
+        ? caseProject
+        : catalog
   return Promise.resolve({ ok: true, json: () => Promise.resolve(payload) })
 }) as unknown as typeof fetch)
 
@@ -84,4 +109,16 @@ test('shows collaboration actions for a project', async () => {
   expect(screen.getByRole('link', { name: /Git repository/ })).toHaveAttribute('href', 'https://github.com/NarysAI/Case_holder')
   expect(screen.getByRole('link', { name: /Issues/ })).toHaveAttribute('href', 'https://github.com/NarysAI/Case_holder/issues')
   expect(screen.getByText('drawing-v1.0.0')).toBeInTheDocument()
+})
+
+test('applies a standoff size preset only after confirmation', async () => {
+  const { hook } = memoryLocation({ path: '/repository/part/std/metric/standoffs:hex-standoff-male-female' })
+  render(<Router hook={hook}><App /></Router>)
+  expect(await screen.findByRole('heading', { name: 'hex-standoff-male-female' })).toBeInTheDocument()
+  expect(screen.getByTestId('viewer-parameters')).toHaveTextContent('"thread_diameter":3')
+  fireEvent.change(screen.getByLabelText('Типорозмір'), { target: { value: 'm2' } })
+  expect(screen.getByTestId('viewer-parameters')).toHaveTextContent('"thread_diameter":3')
+  fireEvent.click(screen.getByRole('button', { name: 'Показати' }))
+  expect(screen.getByTestId('viewer-parameters')).toHaveTextContent('"thread_diameter":2')
+  expect(screen.getByTestId('viewer-parameters')).toHaveTextContent('"body_length":6')
 })

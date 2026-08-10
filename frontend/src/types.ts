@@ -48,6 +48,21 @@ export type CatalogObject = {
   entry_type?: 'package' | 'project'
   canonical_repo_url?: string
   default_branch?: string
+  parameters?: Record<string, {
+    type: 'float' | 'int' | 'bool' | 'str' | 'string'
+    default: number | boolean | string
+    min?: number
+    max?: number
+    step?: number
+    hidden?: boolean
+    options?: number[]
+  }>
+  parameter_presets?: Array<{
+    id: string
+    label: string
+    parameters: Record<string, number | boolean | string>
+  }>
+  default_parameter_preset?: string
 }
 
 export type Principal = { key_id: string; name: string; role: 'user' | 'admin' }

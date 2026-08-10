@@ -30,6 +30,7 @@ SCAD_MATERIAL_PATTERN = re.compile(
     r"^\s*//\s*NARYS_MATERIAL:\s*([A-Za-z0-9_-]+)\s*=\s*(#[0-9A-Fa-f]{6})\s*$",
     re.MULTILINE,
 )
+SCAD_PARAMETER_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def scad_materials(source: Path) -> list[tuple[str, tuple[int, int, int, int]]]:
@@ -183,6 +184,107 @@ def _slot_sketch_mesh(spec: dict[str, Any]) -> trimesh.Trimesh:
     return _convex_profile_mesh(points)
 
 
+def _coerce_parameter(name: str, declaration: dict[str, Any], value: Any) -> bool | int | float | str:
+    parameter_type = str(declaration.get("type", "float")).casefold()
+    try:
+        if parameter_type == "float":
+            converted: bool | int | float | str = float(value)
+            if not math.isfinite(converted):
+                raise ValueError
+        elif parameter_type == "int":
+            numeric = float(value)
+            if not math.isfinite(numeric) or not numeric.is_integer():
+                raise ValueError
+            converted = int(numeric)
+        elif parameter_type == "bool":
+            if isinstance(value, bool):
+                converted = value
+            elif str(value).casefold() in {"true", "1"}:
+                converted = True
+            elif str(value).casefold() in {"false", "0"}:
+                converted = False
+            else:
+                raise ValueError
+        elif parameter_type in {"str", "string"}:
+            converted = str(value)
+        else:
+            raise CatalogError(f"Unsupported parameter type for {name}: {parameter_type}")
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise CatalogError(f"Invalid value for parameter {name}") from exc
+    if isinstance(converted, (int, float)) and not isinstance(converted, bool):
+        if "min" in declaration and converted < float(declaration["min"]):
+            raise CatalogError(f"Parameter {name} must be at least {declaration['min']}")
+        if "max" in declaration and converted > float(declaration["max"]):
+            raise CatalogError(f"Parameter {name} must be at most {declaration['max']}")
+    return converted
+
+
+def _scad_literal(value: bool | int | float | str) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return repr(value)
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _is_bounded_numeric_parameter(declaration: Any) -> bool:
+    if not isinstance(declaration, dict) or str(declaration.get("type", "")).casefold() not in {"float", "int"}:
+        return False
+    if not all(key in declaration for key in ("default", "min", "max")):
+        return False
+    try:
+        values = [float(declaration[key]) for key in ("default", "min", "max")]
+    except (TypeError, ValueError, OverflowError):
+        return False
+    if not all(math.isfinite(value) for value in values) or not values[1] <= values[0] <= values[2]:
+        return False
+    return str(declaration.get("type", "")).casefold() != "int" or all(value.is_integer() for value in values)
+
+
+def _configurable_scad_parameters(spec: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    metadata = spec.get("narys") if isinstance(spec.get("narys"), dict) else {}
+    raw_options = metadata.get("parameter_options", {}) if isinstance(metadata, dict) else {}
+    hidden_parameters = {
+        str(name) for name in metadata.get("hidden_parameters", [])
+    } if isinstance(metadata.get("hidden_parameters", []), list) else set()
+    raw_parameters = spec.get("parameters")
+    if not isinstance(raw_parameters, dict) or not isinstance(raw_options, dict):
+        return {}
+    parameters: dict[str, dict[str, Any]] = {}
+    for raw_name, raw_declaration in raw_parameters.items():
+        name = str(raw_name)
+        options = raw_options.get(name)
+        if (
+            not SCAD_PARAMETER_NAME_PATTERN.fullmatch(name)
+            or not _is_bounded_numeric_parameter(raw_declaration)
+            or not isinstance(options, list)
+            or not 1 <= len(options) <= 100
+        ):
+            continue
+        try:
+            normalized_options = [
+                _coerce_parameter(name, raw_declaration, option)
+                for option in options
+            ]
+            default = _coerce_parameter(name, raw_declaration, raw_declaration["default"])
+        except CatalogError:
+            continue
+        normalized_options = list(dict.fromkeys(normalized_options))
+        if default not in normalized_options:
+            continue
+        parameter_type = str(raw_declaration.get("type", "float")).casefold()
+        declaration: dict[str, Any] = {
+            "type": parameter_type,
+            "default": default,
+            "min": int(raw_declaration["min"]) if parameter_type == "int" else float(raw_declaration["min"]),
+            "max": int(raw_declaration["max"]) if parameter_type == "int" else float(raw_declaration["max"]),
+            "options": normalized_options,
+            "hidden": name in hidden_parameters,
+        }
+        parameters[name] = declaration
+    return parameters
+
+
 def _token(value: str) -> str:
     return base64.urlsafe_b64encode(value.encode()).decode().rstrip("=")
 
@@ -227,6 +329,7 @@ class CatalogService:
         self._objects: dict[str, CatalogObject] = {}
         self._object_roots: dict[str, Path] = {}
         self._lock = threading.RLock()
+        self._preview_lock = threading.Lock()
         self._updated_checkouts: set[Path] = set()
         for directory in (cache_dir, self.package_dir, self.preview_dir):
             directory.mkdir(parents=True, exist_ok=True)
@@ -275,8 +378,10 @@ class CatalogService:
         package_relative = item.package_path.removeprefix("//pub/").removeprefix("//private/")
         item_payload = asdict(item)
         item_payload.pop("spec_json", None)
+        configuration = self._object_configuration(item)
         return {
             **item_payload,
+            **configuration,
             "namespace": "//private" if private else "//pub",
             "visibility": "private" if private else "public",
             "repository": "indra" if private else "git" if project else "PUB",
@@ -290,6 +395,112 @@ class CatalogService:
             "size": size,
             "license_status": "verified" if item.license else "unverified",
         }
+
+    @staticmethod
+    def _object_configuration(item: CatalogObject) -> dict[str, Any]:
+        if item.source_type.casefold() != "scad":
+            return {}
+        try:
+            spec = json.loads(item.spec_json or "{}")
+        except json.JSONDecodeError:
+            return {}
+        metadata = spec.get("narys") if isinstance(spec.get("narys"), dict) else {}
+        parameters = _configurable_scad_parameters(spec)
+        if not parameters:
+            return {}
+        raw_presets = metadata.get("presets", {}) if isinstance(metadata, dict) else {}
+        presets: list[dict[str, Any]] = []
+        linked_parameters = {
+            str(name)
+            for name in metadata.get("hidden_parameters", [])
+            if str(name) in parameters and len(parameters[str(name)]["options"]) > 1
+        } if isinstance(metadata.get("hidden_parameters", []), list) else set()
+        if isinstance(raw_presets, dict):
+            for preset_id, raw_preset in raw_presets.items():
+                if not isinstance(raw_preset, dict):
+                    continue
+                raw_values = raw_preset.get("parameters", {})
+                if not isinstance(raw_values, dict):
+                    continue
+                values: dict[str, bool | int | float | str] = {}
+                valid = True
+                for raw_name, raw_value in raw_values.items():
+                    name = str(raw_name)
+                    declaration = parameters.get(name)
+                    if not declaration:
+                        continue
+                    try:
+                        value = _coerce_parameter(name, declaration, raw_value)
+                    except CatalogError:
+                        valid = False
+                        break
+                    if value not in declaration["options"]:
+                        valid = False
+                        break
+                    values[name] = value
+                if valid and values and linked_parameters.issubset(values):
+                    presets.append({
+                        "id": str(preset_id),
+                        "label": str(raw_preset.get("label", preset_id)),
+                        "parameters": values,
+                    })
+        preset_ids = {preset["id"] for preset in presets}
+        default_preset = metadata.get("default_preset") if isinstance(metadata, dict) else None
+        default_preset = str(default_preset) if str(default_preset) in preset_ids else None
+        return {
+            "parameters": parameters,
+            "parameter_presets": presets,
+            "default_parameter_preset": default_preset,
+        }
+
+    @staticmethod
+    def _resolved_scad_parameters(
+        spec: dict[str, Any],
+        overrides: dict[str, str],
+    ) -> dict[str, bool | int | float | str]:
+        configurable = _configurable_scad_parameters(spec)
+        if len(overrides) > 32:
+            raise CatalogError("Too many preview parameters")
+        unknown = sorted(set(overrides) - set(configurable))
+        if unknown:
+            raise CatalogError(f"Unknown preview parameter: {unknown[0]}")
+        resolved: dict[str, bool | int | float | str] = {}
+        for raw_name, raw_declaration in configurable.items():
+            name = str(raw_name)
+            if not SCAD_PARAMETER_NAME_PATTERN.fullmatch(name) or not isinstance(raw_declaration, dict):
+                continue
+            if name in overrides:
+                value = _coerce_parameter(name, raw_declaration, overrides[name])
+                if value not in raw_declaration["options"]:
+                    raise CatalogError(f"Unsupported value for parameter {name}")
+                resolved[name] = value
+            elif "default" in raw_declaration:
+                resolved[name] = _coerce_parameter(name, raw_declaration, raw_declaration["default"])
+        metadata = spec.get("narys") if isinstance(spec.get("narys"), dict) else {}
+        hidden = {
+            str(name)
+            for name in metadata.get("hidden_parameters", [])
+            if str(name) in configurable and len(configurable[str(name)]["options"]) > 1
+        } if isinstance(metadata.get("hidden_parameters", []), list) else set()
+        raw_presets = metadata.get("presets", {}) if isinstance(metadata, dict) else {}
+        if hidden and isinstance(raw_presets, dict):
+            matches_preset = False
+            for raw_preset in raw_presets.values():
+                values = raw_preset.get("parameters", {}) if isinstance(raw_preset, dict) else {}
+                if not isinstance(values, dict) or not hidden.issubset(values):
+                    continue
+                try:
+                    matches_preset = all(
+                        _coerce_parameter(name, configurable[name], values[name]) == resolved[name]
+                        for name in hidden
+                    )
+                except CatalogError:
+                    matches_preset = False
+                if matches_preset:
+                    break
+            if not matches_preset:
+                raise CatalogError("Thread dimensions must match a declared preset")
+        return resolved
 
     def refresh(self) -> dict[str, int]:
         with self._lock:
@@ -811,15 +1022,22 @@ class CatalogService:
         scene.export(output, file_type="glb")
         return output
 
-    def preview(self, object_id: str) -> Path:
+    def preview(self, object_id: str, overrides: dict[str, str] | None = None) -> Path:
+        with self._preview_lock:
+            return self._preview_unlocked(object_id, overrides)
+
+    def _preview_unlocked(self, object_id: str, overrides: dict[str, str] | None = None) -> Path:
         item = self._objects.get(object_id)
         if not item:
             raise KeyError(object_id)
+        overrides = overrides or {}
         try:
             spec = json.loads(item.spec_json or "{}")
         except json.JSONDecodeError as exc:
             raise CatalogError(f"Invalid stored object specification for {item.name}") from exc
         if item.kind == "sketch" and item.source_type.casefold() == "basic":
+            if overrides:
+                raise CatalogError("This generated sketch does not support preview parameters")
             return self._generated_sketch_preview(item, spec)
         root = self._object_roots.get(object_id)
         if not root or not item.source_path:
@@ -828,14 +1046,30 @@ class CatalogService:
         if not source.is_relative_to(root.resolve()) or not source.exists():
             raise CatalogError(f"Source model is unavailable: {item.source_path}")
         if item.kind == "sketch" and item.source_type.casefold() == "cadquery" and source.name == "_slotted.py":
+            if overrides:
+                raise CatalogError("This generated sketch does not support preview parameters")
             return self._generated_sketch_preview(item, spec, source)
-        digest = hashlib.sha256(source.read_bytes()).hexdigest()[:16]
+        if overrides and source.suffix.casefold() != ".scad":
+            raise CatalogError("Preview parameters are currently supported for OpenSCAD objects")
+        resolved_parameters = (
+            self._resolved_scad_parameters(spec, overrides)
+            if source.suffix.casefold() == ".scad"
+            else {}
+        )
+        digest_builder = hashlib.sha256(source.read_bytes())
+        digest_builder.update(json.dumps(resolved_parameters, sort_keys=True, separators=(",", ":")).encode())
+        digest = digest_builder.hexdigest()[:16]
         output = self.preview_dir / f"{object_id}-{digest}.glb"
         if output.exists():
             return output
         try:
             render_source = source
             if source.suffix.casefold() == ".scad":
+                parameter_args = [
+                    argument
+                    for name, value in sorted(resolved_parameters.items())
+                    for argument in ("-D", f"{name}={_scad_literal(value)}")
+                ]
                 materials = scad_materials(source)
                 if materials:
                     scene = trimesh.Scene()
@@ -845,6 +1079,7 @@ class CatalogService:
                             result = subprocess.run(
                                 [
                                     "openscad",
+                                    *parameter_args,
                                     "-D",
                                     f'narys_material="{name}"',
                                     "-o",
@@ -871,7 +1106,7 @@ class CatalogService:
                 render_source = self.preview_dir / f"{object_id}-{digest}.stl"
                 if not render_source.exists():
                     result = subprocess.run(
-                        ["openscad", "-o", str(render_source), str(source)],
+                        ["openscad", *parameter_args, "-o", str(render_source), str(source)],
                         capture_output=True,
                         text=True,
                         timeout=180,

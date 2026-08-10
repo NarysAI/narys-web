@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.3.2] - 2026-08-10
+
+### Fixed
+
+- Expose finite, validated OpenSCAD parameter choices and size presets without
+  leaking the full PartCAD object specification.
+- Render selected dimensions through safe OpenSCAD `-D` arguments and cache
+  each canonical configuration separately.
+- Add an apply/reset configurator to object pages so parametric parts are no
+  longer limited to their single source-code default.
+
+### Security
+
+- Reject duplicate, unknown, out-of-range and undeclared preview values.
+- Limit public configurations to explicit finite option sets and serialize
+  OpenSCAD preview generation to avoid duplicate concurrent renders.
+
 ## [0.3.1] - 2026-08-10
 
 ### Fixed
