@@ -67,6 +67,58 @@ The role and source format are enforced by the backend. Electronic, purchased,
 and other real-world components use SCAD only. Printable/manufacturable custom
 parts use FreeCAD FCStd only; STL and STEP are generated derivatives.
 
+### Product families and exact variants
+
+Use `narys.product` schema version 1 when several exact catalog objects belong
+to one product family. A modification remains a distinct object with its own
+PartCAD path and link; it does not reuse a generic family URL.
+
+```yaml
+parts:
+  h30-pcb:
+    type: scad
+    path: h30-pcb.scad
+    model_role: electronic_component
+    narys:
+      product:
+        schema_version: 1
+        family_id: wheeltec-h30
+        family_name: WHEELTEC H30
+        variant_id: h30-pcb
+        variant_name: H30 PCB
+        variant_kind: base
+        revision: "1.0"
+
+  h30-enclosed:
+    type: scad
+    path: h30-enclosed.scad
+    model_role: electronic_component
+    narys:
+      product:
+        schema_version: 1
+        family_id: wheeltec-h30
+        family_name: WHEELTEC H30
+        variant_id: h30-enclosed
+        variant_name: H30 Enclosed
+        variant_kind: enclosed
+        revision: "1.0"
+        base_variant:
+          kind: part
+          semantic_path: electronics/modules/wheeltec-h30:h30-pcb
+          label: H30 PCB
+        components:
+          - kind: part
+            semantic_path: electronics/modules/wheeltec-h30:h30-pcb
+            label: H30 PCB
+            quantity: 1
+            role: electronics
+```
+
+`aliases` may list previous `{kind, semantic_path}` identities. Alias requests
+return the canonical object and the frontend replaces the legacy URL with the
+exact variant route. Revisions describe changes to one variant; they do not
+replace the family/variant relationship.
+
 Then add an import below the matching folder in [`NarysAI/narys-index`](https://github.com/NarysAI/narys-index):
 
 ```yaml

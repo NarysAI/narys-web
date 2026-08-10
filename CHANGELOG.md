@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.4.0] - 2026-08-10
+
+### Added
+
+- Product-family metadata with exact variants, independent revisions, base
+  variants, BOM components, and compatibility aliases.
+- Variant and BOM panels on object pages with direct links to exact referenced
+  components.
+
+### Changed
+
+- Object cards and headings use the human-readable exact variant name when
+  product metadata is available.
+- Legacy semantic paths resolve to their canonical exact variant and the
+  browser replaces the old URL with the canonical route.
+
 ## [0.3.3] - 2026-08-10
 
 ### Fixed

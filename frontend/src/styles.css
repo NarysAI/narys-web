@@ -102,6 +102,21 @@ main { max-width: 1500px; margin: 0 auto; padding: 36px 44px 80px; }
 .detail-panel .type-pill { position: static; display: inline-block; }
 .detail-panel h1 { margin: 24px 0 12px; font-size: 34px; letter-spacing: -.04em; }
 .detail-panel > p { color: #91a39d; line-height: 1.7; }
+.product-variant { margin: 28px 0 8px; border: 1px solid #244239; background: #0b1713; }
+.product-variant-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 16px 18px; border-bottom: 1px solid var(--line); }
+.product-variant-head span, .base-variant > span { color: #71877f; font: 9px DM Mono; text-transform: uppercase; letter-spacing: .08em; }
+.product-variant-head strong { color: var(--mint); font-size: 14px; }
+.variant-summary { margin: 0 !important; padding: 0 18px; border-top: 0 !important; }
+.variant-summary div { grid-template-columns: 110px 1fr !important; padding: 11px 0 !important; }
+.base-variant { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 15px 18px; border-top: 1px solid var(--line); }
+.base-variant a, .variant-bom a { display: inline-flex; align-items: center; gap: 4px; color: var(--mint); font-weight: 700; }
+.variant-bom { padding: 16px 18px 18px; border-top: 1px solid var(--line); }
+.variant-bom-title { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; color: #c4d0cc; }
+.variant-bom ol { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.variant-bom li { display: grid; grid-template-columns: 34px 1fr; align-items: start; gap: 8px; padding: 9px 10px; background: #0d1d18; }
+.component-quantity { color: var(--mint); font: 11px DM Mono; }
+.variant-bom li div { display: grid; gap: 3px; }
+.variant-bom small { color: #71877f; font: 9px DM Mono; text-transform: uppercase; }
 .parameter-form { display: grid; gap: 14px; margin: 28px 0 8px; padding: 18px; border: 1px solid #2a443b; background: #0d1916; }
 .parameter-form-head { display: grid; gap: 4px; }
 .parameter-form-head strong { color: #d9ebe5; font-size: 13px; }

@@ -154,6 +154,48 @@ def test_object_can_be_resolved_by_partcad_path():
         service._objects.pop(item.id, None)
 
 
+def test_product_variant_metadata_and_compatibility_alias():
+    pcb = CatalogObject(
+        id="h30-pcb",
+        package_id="wheeltec-h30",
+        package_path="//pub/electronics/modules/wheeltec-h30",
+        name="h30-pcb",
+        kind="part",
+        description="Bare WHEELTEC H30 PCB",
+        source_type="scad",
+        source_path="h30-pcb.scad",
+        source_url="https://github.com/NarysAI/PUB",
+        semantic_path="electronics/modules/wheeltec-h30:h30-pcb",
+        spec_json=json.dumps({
+            "narys": {"product": {
+                "schema_version": 1,
+                "family_id": "wheeltec-h30",
+                "family_name": "WHEELTEC H30",
+                "variant_id": "h30-pcb",
+                "variant_name": "H30 PCB",
+                "variant_kind": "base",
+                "revision": "1.0",
+                "aliases": [{
+                    "kind": "part",
+                    "semantic_path": "electronics/modules/wheeltec-h30wp:wheeltec-h30wp",
+                }],
+            }}
+        }),
+    )
+    service._objects[pcb.id] = pcb
+    try:
+        response = client.get(
+            "/api/v1/by-path/part/electronics/modules/wheeltec-h30wp:wheeltec-h30wp"
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["semantic_path"] == "electronics/modules/wheeltec-h30:h30-pcb"
+        assert payload["product_family"] == {"id": "wheeltec-h30", "name": "WHEELTEC H30"}
+        assert payload["product_variant"]["name"] == "H30 PCB"
+    finally:
+        service._objects.pop(pcb.id, None)
+
+
 def test_jinja_partcad_config_supports_math_constants(tmp_path):
     config = tmp_path / "partcad.yaml"
     config.write_text("parts:\n  item:\n    desc: '{{ SQRT_2 }}'\n", encoding="utf-8")

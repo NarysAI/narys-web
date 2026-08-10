@@ -348,9 +348,11 @@ class CatalogService:
         item_payload = asdict(item)
         item_payload.pop("spec_json", None)
         configuration = self._object_configuration(item)
+        product = self._object_product(item)
         return {
             **item_payload,
             **configuration,
+            **product,
             "namespace": "//private" if private else "//pub",
             "visibility": "private" if private else "public",
             "repository": "indra" if private else "git" if project else "PUB",
@@ -364,6 +366,76 @@ class CatalogService:
             "size": size,
             "license_status": "verified" if item.license else "unverified",
         }
+
+    @staticmethod
+    def _object_product(item: CatalogObject) -> dict[str, Any]:
+        try:
+            spec = json.loads(item.spec_json or "{}")
+        except json.JSONDecodeError:
+            return {}
+        narys = spec.get("narys") if isinstance(spec.get("narys"), dict) else {}
+        product = narys.get("product") if isinstance(narys.get("product"), dict) else None
+        if not product or product.get("schema_version") != 1:
+            return {}
+
+        family_id = str(product.get("family_id", "")).strip()
+        family_name = str(product.get("family_name", "")).strip()
+        variant_id = str(product.get("variant_id", "")).strip()
+        variant_name = str(product.get("variant_name", "")).strip()
+        if not all((family_id, family_name, variant_id, variant_name)):
+            return {}
+
+        def reference(raw: Any) -> dict[str, str] | None:
+            if not isinstance(raw, dict):
+                return None
+            kind = str(raw.get("kind", "part")).casefold().removesuffix("s")
+            semantic_path = str(raw.get("semantic_path", "")).strip()
+            if kind not in {"part", "assembly", "sketch"} or not semantic_path:
+                return None
+            return {
+                "kind": kind,
+                "semantic_path": semantic_path,
+                "label": str(raw.get("label", semantic_path.rsplit(":", 1)[-1])),
+            }
+
+        base_variant = reference(product.get("base_variant"))
+        components: list[dict[str, Any]] = []
+        for raw in product.get("components", []) if isinstance(product.get("components"), list) else []:
+            if not isinstance(raw, dict) or not str(raw.get("label", "")).strip():
+                continue
+            item_reference = reference(raw)
+            component: dict[str, Any] = {
+                "label": str(raw["label"]).strip(),
+                "quantity": raw.get("quantity", 1),
+                "role": str(raw.get("role", "component")),
+                "modeled": bool(raw.get("modeled", item_reference is not None)),
+            }
+            if item_reference:
+                component.update({
+                    "kind": item_reference["kind"],
+                    "semantic_path": item_reference["semantic_path"],
+                })
+            components.append(component)
+
+        aliases = [
+            alias
+            for raw in product.get("aliases", []) if isinstance(product.get("aliases"), list)
+            if (alias := reference(raw)) is not None
+        ]
+        payload: dict[str, Any] = {
+            "product_family": {"id": family_id, "name": family_name},
+            "product_variant": {
+                "id": variant_id,
+                "name": variant_name,
+                "kind": str(product.get("variant_kind", "variant")),
+                "revision": str(product.get("revision", "1.0")),
+            },
+            "components": components,
+            "compatibility_aliases": aliases,
+        }
+        if base_variant:
+            payload["base_variant"] = base_variant
+        return payload
 
     @staticmethod
     def _object_configuration(item: CatalogObject) -> dict[str, Any]:
@@ -921,7 +993,9 @@ class CatalogService:
         for item in self.objects:
             if self._is_private_path(item.package_path) and not include_private:
                 continue
-            if needle in f"{item.name} {item.description} {item.package_path}".casefold():
+            product = self._object_product(item)
+            product_terms = json.dumps(product, ensure_ascii=False)
+            if needle in f"{item.name} {item.description} {item.package_path} {product_terms}".casefold():
                 values.append({"result_type": "object", **self._object_payload(item)})
         return values[:100]
 
@@ -937,6 +1011,16 @@ class CatalogService:
         normalized_kind = kind.casefold().removesuffix("s")
         for item in self._objects.values():
             if item.kind == normalized_kind and item.semantic_path == semantic_path:
+                if self._is_private_path(item.package_path) and not include_private:
+                    break
+                return self._object_payload(item)
+        for item in self._objects.values():
+            product = self._object_product(item)
+            aliases = product.get("compatibility_aliases", [])
+            if any(
+                alias.get("kind") == normalized_kind and alias.get("semantic_path") == semantic_path
+                for alias in aliases
+            ):
                 if self._is_private_path(item.package_path) and not include_private:
                     break
                 return self._object_payload(item)
