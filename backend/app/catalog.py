@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import math
 import os
 import re
@@ -77,6 +78,109 @@ class CatalogObject:
     semantic_path: str
     license: str | None = None
     model_role: str | None = None
+    spec_json: str = "{}"
+
+
+SKETCH_PREVIEW_THICKNESS = 0.08
+SKETCH_PREVIEW_COLOR = (110, 231, 183, 255)
+
+
+def _parameter_default(value: Any, fallback: float) -> float:
+    if isinstance(value, dict):
+        value = value.get("default", fallback)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _shape_value(value: Any, key: str, fallback: float = 0.0) -> float:
+    if isinstance(value, dict):
+        value = value.get(key, fallback)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _convex_profile_mesh(points: list[tuple[float, float]], thickness: float = SKETCH_PREVIEW_THICKNESS) -> trimesh.Trimesh:
+    """Extrude a counter-clockwise convex 2D profile without optional CAD engines."""
+    if len(points) < 3:
+        raise CatalogError("A generated sketch preview needs at least three profile points")
+    half = thickness / 2.0
+    count = len(points)
+    vertices = [(x, y, -half) for x, y in points] + [(x, y, half) for x, y in points]
+    faces: list[tuple[int, int, int]] = []
+    for index in range(1, count - 1):
+        faces.append((0, index + 1, index))
+        faces.append((count, count + index, count + index + 1))
+    for index in range(count):
+        next_index = (index + 1) % count
+        faces.append((index, next_index, count + next_index))
+        faces.append((index, count + next_index, count + index))
+    mesh = trimesh.Trimesh(vertices=vertices, faces=faces, process=True)
+    mesh.visual.face_colors = SKETCH_PREVIEW_COLOR
+    return mesh
+
+
+def _basic_sketch_mesh(spec: dict[str, Any]) -> trimesh.Trimesh:
+    if "circle" in spec:
+        circle = spec["circle"]
+        radius = _shape_value(circle, "radius")
+        x = _shape_value(circle, "x") if isinstance(circle, dict) else 0.0
+        y = _shape_value(circle, "y") if isinstance(circle, dict) else 0.0
+        if radius <= 0:
+            raise CatalogError("Basic circle preview requires a positive radius")
+        points = [
+            (x + radius * math.cos(angle), y + radius * math.sin(angle))
+            for angle in (2.0 * math.pi * index / 64 for index in range(64))
+        ]
+        return _convex_profile_mesh(points)
+    if "square" in spec:
+        square = spec["square"]
+        side = _shape_value(square, "side")
+        x = _shape_value(square, "x") if isinstance(square, dict) else 0.0
+        y = _shape_value(square, "y") if isinstance(square, dict) else 0.0
+        side_x = side_y = side
+    elif "rectangle" in spec:
+        rectangle = spec["rectangle"]
+        side_x = _shape_value(rectangle, "side-x")
+        side_y = _shape_value(rectangle, "side-y")
+        x = _shape_value(rectangle, "x")
+        y = _shape_value(rectangle, "y")
+    else:
+        raise CatalogError("Basic sketch preview has no supported outer shape")
+    if side_x <= 0 or side_y <= 0:
+        raise CatalogError("Basic rectangular preview requires positive dimensions")
+    half_x, half_y = side_x / 2.0, side_y / 2.0
+    return _convex_profile_mesh([
+        (x - half_x, y - half_y),
+        (x + half_x, y - half_y),
+        (x + half_x, y + half_y),
+        (x - half_x, y + half_y),
+    ])
+
+
+def _slot_sketch_mesh(spec: dict[str, Any]) -> trimesh.Trimesh:
+    parameters = spec.get("parameters") or {}
+    diameter = max(_parameter_default(parameters.get("diameter"), 1.0), 0.001)
+    length = max(_parameter_default(parameters.get("length"), diameter), diameter)
+    radius = diameter / 2.0
+    straight = length - diameter
+    if straight <= 1e-9:
+        points = [
+            (radius * math.cos(angle), radius * math.sin(angle))
+            for angle in (2.0 * math.pi * index / 64 for index in range(64))
+        ]
+    else:
+        points = []
+        for index in range(33):
+            angle = -math.pi / 2.0 + math.pi * index / 32.0
+            points.append((straight / 2.0 + radius * math.cos(angle), radius * math.sin(angle)))
+        for index in range(33):
+            angle = math.pi / 2.0 + math.pi * index / 32.0
+            points.append((-straight / 2.0 + radius * math.cos(angle), radius * math.sin(angle)))
+    return _convex_profile_mesh(points)
 
 
 def _token(value: str) -> str:
@@ -169,8 +273,10 @@ class CatalogService:
                     digest.update(chunk)
             checksum = digest.hexdigest()
         package_relative = item.package_path.removeprefix("//pub/").removeprefix("//private/")
+        item_payload = asdict(item)
+        item_payload.pop("spec_json", None)
         return {
-            **asdict(item),
+            **item_payload,
             "namespace": "//private" if private else "//pub",
             "visibility": "private" if private else "public",
             "repository": "indra" if private else "git" if project else "PUB",
@@ -243,13 +349,16 @@ class CatalogService:
                     id TEXT PRIMARY KEY, package_id TEXT NOT NULL, package_path TEXT NOT NULL,
                     name TEXT NOT NULL, kind TEXT NOT NULL, description TEXT NOT NULL,
                     source_type TEXT NOT NULL, source_path TEXT, source_url TEXT NOT NULL,
-                    semantic_path TEXT NOT NULL, license TEXT, model_role TEXT, object_root TEXT,
+                    semantic_path TEXT NOT NULL, license TEXT, model_role TEXT,
+                    spec_json TEXT NOT NULL DEFAULT '{}', object_root TEXT,
                     FOREIGN KEY(package_id) REFERENCES packages(id)
                 )"""
             )
             object_columns = {row[1] for row in connection.execute("PRAGMA table_info(objects)")}
             if "model_role" not in object_columns:
                 connection.execute("ALTER TABLE objects ADD COLUMN model_role TEXT")
+            if "spec_json" not in object_columns:
+                connection.execute("ALTER TABLE objects ADD COLUMN spec_json TEXT NOT NULL DEFAULT '{}'")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_objects_package_id ON objects(package_id)")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_objects_kind_name ON objects(kind, name)")
             connection.execute(
@@ -292,10 +401,10 @@ class CatalogService:
             connection.executemany(
                 """INSERT INTO objects (
                     id,package_id,package_path,name,kind,description,source_type,
-                    source_path,source_url,semantic_path,license,model_role,object_root
+                    source_path,source_url,semantic_path,license,model_role,spec_json,object_root
                 ) VALUES (
                     :id,:package_id,:package_path,:name,:kind,:description,:source_type,
-                    :source_path,:source_url,:semantic_path,:license,:model_role,:object_root
+                    :source_path,:source_url,:semantic_path,:license,:model_role,:spec_json,:object_root
                 )""",
                 rows,
             )
@@ -554,7 +663,9 @@ class CatalogService:
                 spec = raw if isinstance(raw, dict) else {}
                 source_type = str(spec.get("type", "native"))
                 default_ext = "FCStd" if source_type == "freecad" else "3mf" if source_type == "3mf" else source_type
-                source_path = spec.get("path") or (f"{name}.{default_ext}" if source_type not in {"native", "ai"} else None)
+                source_path = spec.get("path") or (
+                    f"{name}.{default_ext}" if source_type not in {"native", "ai", "basic"} else None
+                )
                 model_role = str(spec["model_role"]) if spec.get("model_role") else None
                 self._validate_model_role(name, source_type, str(source_path) if source_path else None, model_role)
                 object_id = _token(f"{package.id}|{kind}|{name}")
@@ -571,6 +682,7 @@ class CatalogService:
                     semantic_path=f"{package.path.removeprefix('//pub/') if not self._is_private_path(package.path) else package.path.removeprefix('//')}:{name}",
                     license=str(license_name) if license_name else None,
                     model_role=model_role,
+                    spec_json=json.dumps(spec, sort_keys=True, separators=(",", ":")),
                 )
                 self._object_roots[object_id] = root
 
@@ -675,16 +787,48 @@ class CatalogService:
                     archive.write(path, Path(package.name) / path.relative_to(root))
         return output
 
+    def _generated_sketch_preview(
+        self,
+        item: CatalogObject,
+        spec: dict[str, Any],
+        source: Path | None = None,
+    ) -> Path:
+        digest_builder = hashlib.sha256(item.spec_json.encode())
+        if source is not None:
+            digest_builder.update(source.read_bytes())
+        digest = digest_builder.hexdigest()[:16]
+        output = self.preview_dir / f"{item.id}-{digest}.glb"
+        if output.exists():
+            return output
+        if item.source_type.casefold() == "basic":
+            mesh = _basic_sketch_mesh(spec)
+        elif item.source_type.casefold() == "cadquery" and source is not None and source.name == "_slotted.py":
+            mesh = _slot_sketch_mesh(spec)
+        else:
+            raise CatalogError(f"No generated sketch preview is available for {item.source_type}")
+        scene = trimesh.Scene()
+        scene.add_geometry(mesh, geom_name=item.name, node_name=item.name)
+        scene.export(output, file_type="glb")
+        return output
+
     def preview(self, object_id: str) -> Path:
         item = self._objects.get(object_id)
         if not item:
             raise KeyError(object_id)
+        try:
+            spec = json.loads(item.spec_json or "{}")
+        except json.JSONDecodeError as exc:
+            raise CatalogError(f"Invalid stored object specification for {item.name}") from exc
+        if item.kind == "sketch" and item.source_type.casefold() == "basic":
+            return self._generated_sketch_preview(item, spec)
         root = self._object_roots.get(object_id)
         if not root or not item.source_path:
             raise CatalogError("This object does not expose a directly convertible source file")
         source = (root / item.source_path).resolve()
         if not source.is_relative_to(root.resolve()) or not source.exists():
             raise CatalogError(f"Source model is unavailable: {item.source_path}")
+        if item.kind == "sketch" and item.source_type.casefold() == "cadquery" and source.name == "_slotted.py":
+            return self._generated_sketch_preview(item, spec, source)
         digest = hashlib.sha256(source.read_bytes()).hexdigest()[:16]
         output = self.preview_dir / f"{object_id}-{digest}.glb"
         if output.exists():

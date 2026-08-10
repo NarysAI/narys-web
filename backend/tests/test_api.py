@@ -1,6 +1,9 @@
+import json
+
 from fastapi.testclient import TestClient
 
 import pytest
+import trimesh
 
 from app.catalog import CatalogError, CatalogObject, CatalogService, Package, scad_materials
 from app.main import app, auth, service
@@ -78,6 +81,68 @@ def test_printable_part_requires_freecad_master():
     CatalogService._validate_model_role("bracket", "freecad", "bracket.FCStd", "printable_part")
     with pytest.raises(CatalogError, match="requires exactly one .FCStd"):
         CatalogService._validate_model_role("bracket", "scad", "bracket.scad", "printable_part")
+
+
+def test_basic_sketch_has_generated_preview_without_fake_source(tmp_path):
+    local = CatalogService(
+        index_url="unused",
+        index_ref="main",
+        cache_dir=tmp_path / "cache",
+        index_dir=tmp_path / "index",
+    )
+    package = Package(
+        id="metric-m",
+        path="//pub/std/metric/m",
+        name="m",
+        description="Metric interfaces",
+        source_url="https://example.test/PUB.git",
+    )
+    local._packages[package.id] = package
+    local._register_objects(package, tmp_path, {"sketches": {"m1": {"type": "basic", "circle": 0.5}}})
+    item = local.objects[0]
+
+    assert item.source_path is None
+    preview = local.preview(item.id)
+    scene = trimesh.load(preview, force="scene")
+    assert scene.extents.tolist() == pytest.approx([1.0, 1.0, 0.08], abs=0.01)
+
+
+def test_shared_cadquery_slot_gets_capsule_preview(tmp_path):
+    local = CatalogService(
+        index_url="unused",
+        index_ref="main",
+        cache_dir=tmp_path / "cache",
+        index_dir=tmp_path / "index",
+    )
+    source = tmp_path / "_slotted.py"
+    source.write_text("# shared slot source\n", encoding="utf-8")
+    spec = {
+        "type": "cadquery",
+        "path": "_slotted.py",
+        "parameters": {
+            "diameter": {"type": "float", "default": 1.0},
+            "length": {"type": "float", "default": 1.5},
+        },
+    }
+    item = CatalogObject(
+        id="m1-slot-1.5",
+        package_id="metric-m",
+        package_path="//pub/std/metric/m",
+        name="m1-slotted-1.5",
+        kind="sketch",
+        description="Metric capsule slot",
+        source_type="cadquery",
+        source_path="_slotted.py",
+        source_url="https://example.test/PUB.git",
+        semantic_path="std/metric/m:m1-slotted-1.5",
+        spec_json=json.dumps(spec),
+    )
+    local._objects[item.id] = item
+    local._object_roots[item.id] = tmp_path
+
+    preview = local.preview(item.id)
+    scene = trimesh.load(preview, force="scene")
+    assert scene.extents.tolist() == pytest.approx([1.5, 1.0, 0.08], abs=0.01)
 
 
 def test_thumbnail_prefers_checked_in_release_png(tmp_path):
