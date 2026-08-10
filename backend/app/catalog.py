@@ -1032,14 +1032,14 @@ class CatalogService:
         if model_role is None:
             return
         suffix = Path(source_path or "").suffix
-        if model_role == "electronic_component":
+        if model_role in {"electronic_component", "mechanical_component"}:
             allowed = {
                 "scad": {".scad"},
                 "stl": {".stl"},
                 "step": {".step", ".stp"},
             }
             if suffix.casefold() not in allowed.get(source_type.casefold(), set()):
-                raise CatalogError(f"{name}: electronic_component requires a matching SCAD, STL, or STEP source")
+                raise CatalogError(f"{name}: catalog component requires a matching SCAD, STL, or STEP source")
             return
         if model_role == "printable_part":
             if source_type.casefold() != "freecad" or suffix != ".FCStd":

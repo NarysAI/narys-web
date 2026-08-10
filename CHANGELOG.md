@@ -12,6 +12,8 @@
   structure on one exact variant page.
 - STEP component identifiers, exact catalog links, format downloads, and
   server-side representation validation.
+- Mechanical component roles so internal assemblies can link housings, covers,
+  fasteners, and vibration isolators as exact catalog records.
 
 ### Changed
 

@@ -47,19 +47,22 @@ export function Viewer({
   privateObject = false,
   parameters = {},
   representationFormat,
+  revisionKey,
 }: {
   id: string
   privateObject?: boolean
   parameters?: Record<string, number | boolean | string>
   representationFormat?: 'scad' | 'stl' | 'step'
+  revisionKey?: string
 }) {
   const query = useMemo(() => {
     const values = new URLSearchParams()
     Object.entries(parameters)
       .sort(([left], [right]) => left.localeCompare(right))
       .forEach(([name, value]) => values.set(name, String(value)))
+    if (revisionKey) values.set('v', revisionKey)
     return values.toString()
-  }, [parameters])
+  }, [parameters, revisionKey])
   const previewBase = representationFormat
     ? `/api/v1/objects/${id}/representations/${representationFormat}/preview.gltf`
     : `/api/v1/objects/${id}/preview.gltf`
@@ -78,7 +81,7 @@ export function Viewer({
   return (
     <ViewerErrorBoundary key={`${id}:${representationFormat || 'primary'}?${query}`}>
       <div className="viewer" aria-label="Інтерактивний 3D-переглядач">
-        <Canvas camera={{ position: [3, 2.2, 3], fov: 42 }} shadows gl={{ toneMappingExposure: 0.72 }}>
+        <Canvas camera={{ position: [3, -6, 10], up: [0, 0, 1], fov: 42 }} shadows gl={{ toneMappingExposure: 0.72 }}>
           <color attach="background" args={['#101916']} />
           <ambientLight intensity={0.28} />
           <directionalLight position={[5, 7, 4]} intensity={1.15} color="#d8fff0" castShadow />
@@ -89,7 +92,7 @@ export function Viewer({
             <Environment preset="warehouse" environmentIntensity={0.45} />
           </Suspense>
           <OrbitControls makeDefault />
-          <gridHelper args={[10, 20, '#314b43', '#1c2b27']} position={[0, -1.2, 0]} />
+          <gridHelper args={[10, 20, '#314b43', '#1c2b27']} position={[0, 0, -1.2]} rotation={[Math.PI / 2, 0, 0]} />
         </Canvas>
         <div className="viewer-hint">Перетягніть для обертання · колесо для масштабу</div>
       </div>

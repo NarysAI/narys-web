@@ -207,6 +207,7 @@ def test_electronic_component_accepts_catalog_cad_formats():
     CatalogService._validate_model_role("camera", "scad", "camera.scad", "electronic_component")
     CatalogService._validate_model_role("camera", "stl", "camera.stl", "electronic_component")
     CatalogService._validate_model_role("camera", "step", "camera.step", "electronic_component")
+    CatalogService._validate_model_role("housing", "scad", "housing.scad", "mechanical_component")
     with pytest.raises(CatalogError, match="matching SCAD, STL, or STEP"):
         CatalogService._validate_model_role("camera", "freecad", "camera.FCStd", "electronic_component")
 
