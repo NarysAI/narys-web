@@ -181,6 +181,43 @@ def object_source(object_id: str):
         raise HTTPException(422, str(exc)) from exc
 
 
+@app.get("/api/v1/objects/{object_id}/representations/{source_format}/preview.gltf")
+def representation_preview(
+    object_id: str,
+    source_format: str,
+    request: Request,
+    principal: Principal | None = Depends(optional_principal),
+):
+    try:
+        service.object_detail(object_id, include_private=principal is not None)
+        query_items = list(request.query_params.multi_items())
+        if len({key for key, _ in query_items}) != len(query_items):
+            raise CatalogError("Duplicate preview parameter")
+        return FileResponse(
+            service.preview(object_id, dict(query_items), source_format),
+            media_type="model/gltf-binary",
+            filename=f"{object_id}-{source_format}.glb",
+        )
+    except KeyError as exc:
+        raise HTTPException(404, "Representation not found") from exc
+    except CatalogError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@app.get("/api/v1/objects/{object_id}/representations/{source_format}/source")
+def object_representation_source(object_id: str, source_format: str):
+    try:
+        item = service.object_detail(object_id)
+        if item["visibility"] == "private":
+            raise KeyError(object_id)
+        source = service.representation_file(object_id, source_format)
+        return FileResponse(source, filename=source.name, media_type="application/octet-stream")
+    except KeyError as exc:
+        raise HTTPException(404, "Representation not found") from exc
+    except CatalogError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
 @app.get("/api/v1/packages/{package_id}/archive.zip")
 def package_archive(package_id: str, principal: Principal | None = Depends(optional_principal)):
     try:

@@ -8,6 +8,10 @@
   variants, BOM components, and compatibility aliases.
 - Variant and BOM panels on object pages with direct links to exact referenced
   components.
+- Multi-format representations: SCAD/STL exterior geometry and STEP interior
+  structure on one exact variant page.
+- STEP component identifiers, exact catalog links, format downloads, and
+  server-side representation validation.
 
 ### Changed
 

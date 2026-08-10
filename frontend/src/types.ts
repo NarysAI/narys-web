@@ -76,6 +76,7 @@ export type CatalogObject = {
   base_variant?: ProductObjectReference
   components?: ProductComponent[]
   compatibility_aliases?: ProductObjectReference[]
+  representations?: ModelRepresentation[]
 }
 
 export type ProductObjectReference = {
@@ -91,6 +92,15 @@ export type ProductComponent = {
   modeled: boolean
   kind?: 'part' | 'assembly' | 'sketch'
   semantic_path?: string
+}
+
+export type ModelRepresentation = {
+  format: 'scad' | 'stl' | 'step'
+  path: string
+  geometry_scope: 'exterior' | 'interior'
+  label: string
+  primary: boolean
+  components: Array<ProductObjectReference & { identifier: string }>
 }
 
 export type Principal = { key_id: string; name: string; role: 'user' | 'admin' }

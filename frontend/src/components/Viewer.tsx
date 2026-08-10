@@ -46,10 +46,12 @@ export function Viewer({
   id,
   privateObject = false,
   parameters = {},
+  representationFormat,
 }: {
   id: string
   privateObject?: boolean
   parameters?: Record<string, number | boolean | string>
+  representationFormat?: 'scad' | 'stl' | 'step'
 }) {
   const query = useMemo(() => {
     const values = new URLSearchParams()
@@ -58,7 +60,10 @@ export function Viewer({
       .forEach(([name, value]) => values.set(name, String(value)))
     return values.toString()
   }, [parameters])
-  const previewPath = `/api/v1/objects/${id}/preview.gltf${query ? `?${query}` : ''}`
+  const previewBase = representationFormat
+    ? `/api/v1/objects/${id}/representations/${representationFormat}/preview.gltf`
+    : `/api/v1/objects/${id}/preview.gltf`
+  const previewPath = `${previewBase}${query ? `?${query}` : ''}`
   const [url, setUrl] = useState(privateObject ? '' : `${API}${previewPath}`)
   useEffect(() => {
     if (!privateObject) { setUrl(`${API}${previewPath}`); return }
@@ -71,7 +76,7 @@ export function Viewer({
     return () => { active = false; if (blobUrl) URL.revokeObjectURL(blobUrl) }
   }, [id, previewPath, privateObject])
   return (
-    <ViewerErrorBoundary key={`${id}?${query}`}>
+    <ViewerErrorBoundary key={`${id}:${representationFormat || 'primary'}?${query}`}>
       <div className="viewer" aria-label="Інтерактивний 3D-переглядач">
         <Canvas camera={{ position: [3, 2.2, 3], fov: 42 }} shadows gl={{ toneMappingExposure: 0.72 }}>
           <color attach="background" args={['#101916']} />

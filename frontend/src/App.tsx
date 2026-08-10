@@ -669,6 +669,7 @@ const objectReferenceHref = (kind: string, semanticPath: string) =>
 function ObjectDetail({ item }: { item: CatalogObject }) {
   const { principal } = useContext(AuthContext);
   const displayName = item.product_variant?.name || item.name;
+  const primaryRepresentation = item.representations?.find((representation) => representation.primary)?.format;
   const parameterDefaults = useMemo(
     () => Object.fromEntries(
       Object.entries(item.parameters || {}).map(([name, declaration]) => [name, declaration.default]),
@@ -683,11 +684,13 @@ function ObjectDetail({ item }: { item: CatalogObject }) {
   const [draftParameters, setDraftParameters] = useState(initialParameters);
   const [appliedParameters, setAppliedParameters] = useState(initialParameters);
   const [presetId, setPresetId] = useState(initialPreset);
+  const [activeRepresentation, setActiveRepresentation] = useState(primaryRepresentation);
   useEffect(() => {
     setDraftParameters(initialParameters);
     setAppliedParameters(initialParameters);
     setPresetId(initialPreset);
-  }, [item.id, initialParameters, initialPreset]);
+    setActiveRepresentation(primaryRepresentation);
+  }, [item.id, initialParameters, initialPreset, primaryRepresentation]);
   const applyParameters = (event: FormEvent) => {
     event.preventDefault();
     const values = Object.fromEntries(
@@ -730,7 +733,8 @@ function ObjectDetail({ item }: { item: CatalogObject }) {
         <Viewer
           id={item.id}
           privateObject={item.visibility === "private"}
-          parameters={appliedParameters}
+          parameters={activeRepresentation === "scad" || !activeRepresentation ? appliedParameters : {}}
+          representationFormat={activeRepresentation}
         />
         <article className="detail-panel">
           <span className="type-pill">
@@ -782,6 +786,70 @@ function ObjectDetail({ item }: { item: CatalogObject }) {
                   </ol>
                 </div>
               )}
+            </section>
+          )}
+          {item.representations && item.representations.length > 0 && (
+            <section className="model-representations" aria-label="Формати креслення">
+              <div className="representation-title">
+                <Box size={17} />
+                <div>
+                  <strong>Представлення моделі</strong>
+                  <span>Один точний варіант, різні рівні геометрії</span>
+                </div>
+              </div>
+              <ul>
+                {item.representations.map((representation) => (
+                  <li
+                    key={`${representation.format}-${representation.path}`}
+                    className={activeRepresentation === representation.format ? "active" : ""}
+                  >
+                    <div className="representation-format">
+                      <strong>{representation.format.toUpperCase()}</strong>
+                      {representation.primary && <span>основне</span>}
+                    </div>
+                    <div className="representation-copy">
+                      <span>
+                        {representation.geometry_scope === "interior"
+                          ? "Внутрішня структура"
+                          : "Зовнішня форма"}
+                      </span>
+                      <small>{representation.path}</small>
+                      {representation.components.length > 0 && (
+                        <div className="step-components">
+                          {representation.components.map((component) => (
+                            <Link
+                              key={component.identifier}
+                              href={objectReferenceHref(component.kind, component.semantic_path)}
+                              title={component.identifier}
+                            >
+                              {component.label}
+                            </Link>
+                          ))}
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        className="representation-preview"
+                        onClick={() => setActiveRepresentation(representation.format)}
+                      >
+                        {activeRepresentation === representation.format ? "Відкрито у 3D" : "Показати у 3D"}
+                      </button>
+                    </div>
+                    {item.visibility !== "private" && (
+                      <a
+                        className="representation-download"
+                        href={`${API}/api/v1/objects/${item.id}/representations/${representation.format}/source`}
+                        aria-label={`Завантажити ${representation.format.toUpperCase()}`}
+                      >
+                        <Download size={16} />
+                      </a>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              <p className="representation-rule">
+                STEP-компоненти мають точні ідентифікатори записів каталогу.
+              </p>
             </section>
           )}
           {item.parameters && Object.keys(item.parameters).length > 0 && (
@@ -838,7 +906,7 @@ function ObjectDetail({ item }: { item: CatalogObject }) {
           <dl>
             <div>
               <dt>Model role</dt>
-              <dd>{item.model_role === "electronic_component" ? "Electronic component · AI SCAD" : item.model_role === "printable_part" ? "Printable part · FreeCAD master" : "Legacy · migration pending"}</dd>
+              <dd>{item.model_role === "electronic_component" ? "Electronic component · catalog CAD" : item.model_role === "printable_part" ? "Printable part · FreeCAD master" : "Legacy · migration pending"}</dd>
             </div>
             <div>
               <dt>Формат</dt>

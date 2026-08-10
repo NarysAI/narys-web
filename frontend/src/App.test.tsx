@@ -65,6 +65,16 @@ const h30Enclosed = {
     { label: 'Metal enclosure', quantity: 1, role: 'housing', modeled: true },
     { label: 'M3 cover screws', quantity: 2, role: 'fastener', modeled: true },
   ],
+  representations: [
+    { format: 'scad', path: 'h30-enclosed.scad', geometry_scope: 'exterior', label: 'SCAD', primary: true, components: [] },
+    {
+      format: 'step', path: 'h30-enclosed.step', geometry_scope: 'interior', label: 'Detailed STEP', primary: false,
+      components: [{
+        kind: 'part', semantic_path: 'electronics/modules/wheeltec-h30:h30-pcb', label: 'H30 PCB',
+        identifier: 'narys:part/electronics/modules/wheeltec-h30:h30-pcb',
+      }],
+    },
+  ],
 }
 
 vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
@@ -93,7 +103,7 @@ test('opens an object with a public PartCAD-compatible path', async () => {
   render(<Router hook={hook}><App /></Router>)
   expect(await screen.findByRole('heading', { name: 'battery-7_5' })).toBeInTheDocument()
   expect(screen.getByText('electrical/battery/ego:battery-7_5')).toBeInTheDocument()
-  expect(screen.getByText('Electronic component · AI SCAD')).toBeInTheDocument()
+  expect(screen.getByText('Electronic component · catalog CAD')).toBeInTheDocument()
   expect(screen.getByRole('link', { name: /Відкрити файл у PUB/ })).toHaveAttribute(
     'href', 'https://github.com/NarysAI/PUB/blob/main/electrical/battery/ego/battery-7_5.step',
   )
@@ -111,6 +121,13 @@ test('shows an exact product variant, base model, and BOM', async () => {
   )
   expect(screen.getByText('Metal enclosure')).toBeInTheDocument()
   expect(screen.getByText('M3 cover screws')).toBeInTheDocument()
+  expect(screen.getByText('Зовнішня форма')).toBeInTheDocument()
+  expect(screen.getByText('Внутрішня структура')).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: 'Завантажити STEP' })).toHaveAttribute(
+    'href', '/api/v1/objects/h30-enclosed/representations/step/source',
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Показати у 3D' }))
+  expect(screen.getByRole('button', { name: 'Відкрито у 3D' })).toBeInTheDocument()
 })
 
 test('groups child packages under their manufacturer package', async () => {

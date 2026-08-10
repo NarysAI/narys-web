@@ -64,8 +64,43 @@ parts:
 ```
 
 The role and source format are enforced by the backend. Electronic, purchased,
-and other real-world components use SCAD only. Printable/manufacturable custom
-parts use FreeCAD FCStd only; STL and STEP are generated derivatives.
+and other real-world components may use SCAD, STL, or STEP. Printable and
+manufacturable custom parts continue to use FreeCAD FCStd as their editable
+master.
+
+### Model representations
+
+One exact catalog object may publish several representations without creating
+separate product links. SCAD and STL describe the exterior envelope. STEP
+describes interior structure; each STEP component name must contain its exact
+catalog identifier in the form `narys:<kind>/<semantic_path>` and every such
+reference must resolve to an indexed object.
+
+```yaml
+narys:
+  representations:
+    schema_version: 1
+    files:
+      - format: scad
+        path: h30-enclosed.scad
+        geometry_scope: exterior
+        primary: true
+      - format: stl
+        path: h30-enclosed.stl
+        geometry_scope: exterior
+      - format: step
+        path: h30-enclosed.step
+        geometry_scope: interior
+        components:
+          - kind: part
+            semantic_path: electronics/modules/wheeltec-h30:h30-pcb
+            label: H30 PCB
+```
+
+The corresponding STEP product/component name contains
+`narys:part/electronics/modules/wheeltec-h30:h30-pcb`. The catalog validates
+the token, exposes exact component links, and offers every representation from
+the same variant page.
 
 ### Product families and exact variants
 

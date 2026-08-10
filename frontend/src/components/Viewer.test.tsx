@@ -29,3 +29,10 @@ test('builds a stable preview URL from applied parameters', () => {
     '/api/v1/objects/standoff/preview.gltf?body_length=12&thread_diameter=2.5',
   )
 })
+
+test('builds a preview URL for a selected representation', () => {
+  render(<Viewer id="h30" representationFormat="stl" />)
+  expect(useGLTFMock).toHaveBeenCalledWith(
+    '/api/v1/objects/h30/representations/stl/preview.gltf',
+  )
+})

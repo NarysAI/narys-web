@@ -22,13 +22,18 @@ def release_step_source(source: Path) -> Path | None:
 
 def main() -> int:
     source, destination = Path(sys.argv[1]), sys.argv[2]
-    document = App.openDocument(str(source))
     shapes = []
-    for obj in document.Objects:
-        shape = getattr(obj, "Shape", None)
-        if shape is not None and not shape.isNull() and shape.Solids:
-            shapes.extend(shape.Solids)
-    if not shapes:
+    if source.suffix.casefold() in {".step", ".stp"}:
+        step_shape = Part.read(str(source))
+        if not step_shape.isNull() and step_shape.Solids:
+            shapes.extend(step_shape.Solids)
+    else:
+        document = App.openDocument(str(source))
+        for obj in document.Objects:
+            shape = getattr(obj, "Shape", None)
+            if shape is not None and not shape.isNull() and shape.Solids:
+                shapes.extend(shape.Solids)
+    if not shapes and source.suffix.casefold() == ".fcstd":
         step_source = release_step_source(source)
         if step_source is not None:
             step_shape = Part.read(str(step_source))
