@@ -42,20 +42,36 @@ class ViewerErrorBoundary extends Component<{ children: ReactNode }, { failed: b
   }
 }
 
-export function Viewer({ id, privateObject = false }: { id: string; privateObject?: boolean }) {
-  const [url, setUrl] = useState(privateObject ? '' : `${API}/api/v1/objects/${id}/preview.gltf`)
+export function Viewer({
+  id,
+  privateObject = false,
+  parameters = {},
+}: {
+  id: string
+  privateObject?: boolean
+  parameters?: Record<string, number | boolean | string>
+}) {
+  const query = useMemo(() => {
+    const values = new URLSearchParams()
+    Object.entries(parameters)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .forEach(([name, value]) => values.set(name, String(value)))
+    return values.toString()
+  }, [parameters])
+  const previewPath = `/api/v1/objects/${id}/preview.gltf${query ? `?${query}` : ''}`
+  const [url, setUrl] = useState(privateObject ? '' : `${API}${previewPath}`)
   useEffect(() => {
-    if (!privateObject) { setUrl(`${API}/api/v1/objects/${id}/preview.gltf`); return }
+    if (!privateObject) { setUrl(`${API}${previewPath}`); return }
     let active = true
     let blobUrl = ''
-    authorizedBlobUrl(`/api/v1/objects/${id}/preview.gltf`).then((value) => {
+    authorizedBlobUrl(previewPath).then((value) => {
       blobUrl = value
       if (active) setUrl(value)
-    }).catch(() => setUrl(''))
+    }).catch(() => { if (active) setUrl('') })
     return () => { active = false; if (blobUrl) URL.revokeObjectURL(blobUrl) }
-  }, [id, privateObject])
+  }, [id, previewPath, privateObject])
   return (
-    <ViewerErrorBoundary key={id}>
+    <ViewerErrorBoundary key={`${id}?${query}`}>
       <div className="viewer" aria-label="Інтерактивний 3D-переглядач">
         <Canvas camera={{ position: [3, 2.2, 3], fov: 42 }} shadows gl={{ toneMappingExposure: 0.72 }}>
           <color attach="background" args={['#101916']} />

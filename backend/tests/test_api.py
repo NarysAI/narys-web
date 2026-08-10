@@ -1,4 +1,6 @@
 import json
+from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
@@ -40,6 +42,28 @@ def test_catalog_contract():
 def test_missing_object_is_404():
     response = client.get("/api/v1/objects/not-a-real-object")
     assert response.status_code == 404
+
+
+def test_duplicate_preview_parameter_is_rejected():
+    item = CatalogObject(
+        id="duplicate-query",
+        package_id="test",
+        package_path="//pub/test",
+        name="duplicate-query",
+        kind="part",
+        description="Test object",
+        source_type="scad",
+        source_path="test.scad",
+        source_url="https://example.test/PUB.git",
+        semantic_path="test:duplicate-query",
+    )
+    service._objects[item.id] = item
+    try:
+        response = client.get(f"/api/v1/objects/{item.id}/preview.gltf?body_length=10&body_length=10")
+        assert response.status_code == 422
+        assert response.json()["detail"] == "Duplicate preview parameter"
+    finally:
+        service._objects.pop(item.id, None)
 
 
 def test_object_can_be_resolved_by_partcad_path():
@@ -143,6 +167,107 @@ def test_shared_cadquery_slot_gets_capsule_preview(tmp_path):
     preview = local.preview(item.id)
     scene = trimesh.load(preview, force="scene")
     assert scene.extents.tolist() == pytest.approx([1.5, 1.0, 0.08], abs=0.01)
+
+
+def test_scad_configuration_is_exposed_without_leaking_the_full_spec(tmp_path):
+    local = CatalogService(
+        index_url="unused",
+        index_ref="main",
+        cache_dir=tmp_path / "cache",
+        index_dir=tmp_path / "index",
+    )
+    package = Package(
+        id="standoffs",
+        path="//pub/std/metric/standoffs",
+        name="standoffs",
+        description="Metric standoffs",
+        source_url="https://example.test/PUB.git",
+    )
+    local._packages[package.id] = package
+    local._register_objects(package, tmp_path, {"parts": {"mf": {
+        "type": "scad",
+        "path": "mf.scad",
+        "parameters": {
+            "thread_diameter": {"type": "float", "default": 3.0, "min": 2.0, "max": 6.0},
+            "body_length": {"type": "float", "default": 10.0, "min": 4.0, "max": 100.0},
+        },
+        "narys": {
+            "parameter_options": {"thread_diameter": [2.0, 3.0], "body_length": [6.0, 10.0]},
+            "presets": {
+                "m2": {"label": "M2", "parameters": {"thread_diameter": 2.0, "body_length": 6.0}},
+                "broken": {"label": "Broken", "parameters": {"thread_diameter": 9.0, "body_length": 6.0}},
+            },
+        },
+    }}})
+    payload = local.object_detail(local.objects[0].id)
+
+    assert payload["parameters"]["thread_diameter"]["default"] == 3.0
+    assert payload["parameter_presets"] == [{
+        "id": "m2",
+        "label": "M2",
+        "parameters": {"thread_diameter": 2.0, "body_length": 6.0},
+    }]
+    assert "spec_json" not in payload
+
+
+def test_scad_preview_validates_and_passes_parameter_overrides(tmp_path, monkeypatch):
+    local = CatalogService(
+        index_url="unused",
+        index_ref="main",
+        cache_dir=tmp_path / "cache",
+        index_dir=tmp_path / "index",
+    )
+    source = tmp_path / "standoff.scad"
+    source.write_text("cube([body_length, thread_diameter, 1]);\n", encoding="utf-8")
+    spec = {
+        "type": "scad",
+        "path": source.name,
+        "parameters": {
+            "thread_diameter": {"type": "float", "default": 3.0, "min": 2.0, "max": 6.0},
+            "body_length": {"type": "float", "default": 10.0, "min": 4.0, "max": 100.0},
+        },
+        "narys": {
+            "parameter_options": {"thread_diameter": [2.0, 2.5, 3.0], "body_length": [6.0, 10.0, 12.0]},
+        },
+    }
+    item = CatalogObject(
+        id="standoff-mf",
+        package_id="standoffs",
+        package_path="//pub/std/metric/standoffs",
+        name="standoff-mf",
+        kind="part",
+        description="Configurable standoff",
+        source_type="scad",
+        source_path=source.name,
+        source_url="https://example.test/PUB.git",
+        semantic_path="std/metric/standoffs:standoff-mf",
+        spec_json=json.dumps(spec),
+    )
+    local._objects[item.id] = item
+    local._object_roots[item.id] = tmp_path
+    calls: list[list[str]] = []
+
+    def fake_openscad(args, **_kwargs):
+        calls.append(args)
+        output = Path(args[args.index("-o") + 1])
+        trimesh.creation.box().export(output)
+        return SimpleNamespace(returncode=0, stderr="", stdout="")
+
+    monkeypatch.setattr("app.catalog.subprocess.run", fake_openscad)
+    configured = local.preview(item.id, {"thread_diameter": "2.5", "body_length": "12"})
+    configured_again = local.preview(item.id, {"thread_diameter": "2.50", "body_length": "12.0"})
+
+    assert configured.is_file()
+    assert configured_again == configured
+    assert len(calls) == 1
+    assert "thread_diameter=2.5" in calls[0]
+    assert "body_length=12.0" in calls[0]
+    with pytest.raises(CatalogError, match="at least 2.0"):
+        local.preview(item.id, {"thread_diameter": "1"})
+    with pytest.raises(CatalogError, match="Unsupported value"):
+        local.preview(item.id, {"thread_diameter": "2.7"})
+    with pytest.raises(CatalogError, match="Unknown preview parameter"):
+        local.preview(item.id, {"shell": "rm"})
 
 
 def test_thumbnail_prefers_checked_in_release_png(tmp_path):

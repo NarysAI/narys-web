@@ -646,8 +646,57 @@ function SemanticObjectPage() {
   return <ObjectDetail item={item} />;
 }
 
+const parameterLabels: Record<string, string> = {
+  thread_diameter: "Діаметр різьби, мм",
+  thread_pitch: "Крок різьби, мм",
+  body_length: "Довжина корпусу, мм",
+  hex_width: "Розмір під ключ, мм",
+  male_length: "Довжина зовнішньої різьби, мм",
+  female_depth: "Глибина внутрішньої різьби, мм",
+  bevel: "Фаска, мм",
+};
+
 function ObjectDetail({ item }: { item: CatalogObject }) {
   const { principal } = useContext(AuthContext);
+  const parameterDefaults = useMemo(
+    () => Object.fromEntries(
+      Object.entries(item.parameters || {}).map(([name, declaration]) => [name, declaration.default]),
+    ) as Record<string, number | boolean | string>,
+    [item.parameters],
+  );
+  const initialPreset = item.default_parameter_preset || item.parameter_presets?.[0]?.id || "";
+  const initialParameters = useMemo(() => ({
+    ...parameterDefaults,
+    ...(item.parameter_presets?.find((candidate) => candidate.id === initialPreset)?.parameters || {}),
+  }), [initialPreset, item.parameter_presets, parameterDefaults]);
+  const [draftParameters, setDraftParameters] = useState(initialParameters);
+  const [appliedParameters, setAppliedParameters] = useState(initialParameters);
+  const [presetId, setPresetId] = useState(initialPreset);
+  useEffect(() => {
+    setDraftParameters(initialParameters);
+    setAppliedParameters(initialParameters);
+    setPresetId(initialPreset);
+  }, [item.id, initialParameters, initialPreset]);
+  const applyParameters = (event: FormEvent) => {
+    event.preventDefault();
+    const values = Object.fromEntries(
+      Object.entries(draftParameters).map(([name, value]) => {
+        const declaration = item.parameters?.[name];
+        return [name, declaration?.type === "int" ? Number.parseInt(String(value), 10) : Number(value)];
+      }),
+    );
+    setAppliedParameters(values);
+  };
+  const selectPreset = (id: string) => {
+    setPresetId(id);
+    const preset = item.parameter_presets?.find((candidate) => candidate.id === id);
+    setDraftParameters({ ...parameterDefaults, ...(preset?.parameters || {}) });
+  };
+  const resetParameters = () => {
+    setDraftParameters(initialParameters);
+    setAppliedParameters(initialParameters);
+    setPresetId(initialPreset);
+  };
   const privateDownload = async () => {
     const data = await createDownloadTicket(item.id);
     window.location.assign(`${API}/api/v1/downloads/${data.ticket}`);
@@ -667,13 +716,68 @@ function ObjectDetail({ item }: { item: CatalogObject }) {
         <span>{item.name}</span>
       </div>
       <div className="detail-layout">
-        <Viewer id={item.id} privateObject={item.visibility === "private"} />
+        <Viewer
+          id={item.id}
+          privateObject={item.visibility === "private"}
+          parameters={appliedParameters}
+        />
         <article className="detail-panel">
           <span className="type-pill">
             {item.visibility === "private" ? "private" : item.kind}
           </span>
           <h1>{item.name}</h1>
           <p>{item.description}</p>
+          {item.parameters && Object.keys(item.parameters).length > 0 && (
+            <form className="parameter-form" onSubmit={applyParameters}>
+              <div className="parameter-form-head">
+                <strong>Розміри</strong>
+                <span>Змініть параметри й натисніть «Показати»</span>
+              </div>
+              {item.parameter_presets && item.parameter_presets.length > 0 && (
+                <label>
+                  Типорозмір
+                  <select
+                    aria-label="Типорозмір"
+                    value={presetId}
+                    onChange={(event) => selectPreset(event.target.value)}
+                  >
+                    <option value="">Власні розміри</option>
+                    {item.parameter_presets.map((preset) => (
+                      <option key={preset.id} value={preset.id}>{preset.label}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <div className="parameter-fields">
+                {Object.entries(item.parameters)
+                  .filter(([, declaration]) => !declaration.hidden)
+                  .map(([name, declaration]) => (
+                    <label key={name}>
+                      {parameterLabels[name] || name.replaceAll("_", " ")}
+                      <select
+                        aria-label={parameterLabels[name] || name}
+                        value={String(draftParameters[name] ?? declaration.default)}
+                        onChange={(event) => {
+                          setPresetId("");
+                          setDraftParameters((current) => ({
+                            ...current,
+                            [name]: event.target.value,
+                          }));
+                        }}
+                      >
+                        {(declaration.options || [Number(declaration.default)]).map((option) => (
+                          <option key={option} value={String(option)}>{option}</option>
+                        ))}
+                      </select>
+                    </label>
+                  ))}
+              </div>
+              <div className="parameter-actions">
+                <button type="submit">Показати</button>
+                <button type="button" onClick={resetParameters}>Скинути</button>
+              </div>
+            </form>
+          )}
           <dl>
             <div>
               <dt>Model role</dt>
