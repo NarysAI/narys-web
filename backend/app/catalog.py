@@ -751,14 +751,44 @@ class CatalogService:
             raise CatalogError(f"Preview conversion failed: {exc}") from exc
         return output
 
+    def _release_thumbnail(self, object_id: str) -> Path | None:
+        """Return a checked-in PNG next to the versioned CAD release, if present."""
+        item = self._objects.get(object_id)
+        root = self._object_roots.get(object_id)
+        if not item or not root or not item.source_path:
+            return None
+        root = root.resolve()
+        source = (root / item.source_path).resolve()
+        if not source.is_relative_to(root):
+            return None
+        candidates = (
+            source.with_suffix(".png"),
+            source.parent.parent / f"{source.stem}.png",
+            root / f"{source.stem}.png",
+        )
+        for candidate in candidates:
+            candidate = candidate.resolve()
+            if candidate.is_relative_to(root) and candidate.is_file():
+                try:
+                    with Image.open(candidate) as image:
+                        if image.format == "PNG":
+                            return candidate
+                except OSError:
+                    continue
+        return None
+
     def thumbnail(self, object_id: str) -> Path:
         item = self._objects.get(object_id)
         if not item:
             raise KeyError(object_id)
-        preview = self.preview(object_id)
-        output = self.preview_dir / f"{preview.stem}-v2.png"
-        if not output.exists():
-            try:
+        release_thumbnail = self._release_thumbnail(object_id)
+        if release_thumbnail is not None:
+            return release_thumbnail
+        output = self.preview_dir / f"{object_id}-fallback-v2.png"
+        try:
+            preview = self.preview(object_id)
+            output = self.preview_dir / f"{preview.stem}-v2.png"
+            if not output.exists():
                 scene = trimesh.load(preview, force="scene")
                 vertices: list = []
                 faces: list = []
@@ -770,7 +800,8 @@ class CatalogService:
                     faces.extend((geometry.faces + offset).tolist())
                     offset += len(geometry.vertices)
                 self._draw_mesh_thumbnail(vertices, faces, output)
-            except Exception:
+        except Exception:
+            if not output.exists():
                 image = Image.new("RGB", (960, 600), "#101a18")
                 draw = ImageDraw.Draw(image)
                 draw.rounded_rectangle((110, 90, 850, 510), radius=48, fill="#172824", outline="#6ee7b7", width=4)

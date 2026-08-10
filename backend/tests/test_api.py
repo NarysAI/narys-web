@@ -80,6 +80,31 @@ def test_printable_part_requires_freecad_master():
         CatalogService._validate_model_role("bracket", "scad", "bracket.scad", "printable_part")
 
 
+def test_thumbnail_prefers_checked_in_release_png(tmp_path):
+    release = tmp_path / "cad" / "v1.0.0"
+    source_dir = release / "FCstd"
+    source_dir.mkdir(parents=True)
+    source = source_dir / "case.FCStd"
+    source.write_bytes(b"FCStd")
+    thumbnail = release / "case.png"
+    from PIL import Image
+    Image.new("RGB", (32, 20), "#00ff99").save(thumbnail)
+
+    item = CatalogObject(
+        id="release-preview", package_id="case", package_path="//pub/fpv/case",
+        name="case", kind="part", description="Case", source_type="freecad",
+        source_path="cad/v1.0.0/FCstd/case.FCStd", source_url="https://example.test/case",
+        semantic_path="fpv/case:case",
+    )
+    service._objects[item.id] = item
+    service._object_roots[item.id] = tmp_path
+    try:
+        assert service.thumbnail(item.id) == thumbnail
+    finally:
+        service._objects.pop(item.id, None)
+        service._object_roots.pop(item.id, None)
+
+
 def test_unknown_model_role_is_rejected():
     with pytest.raises(CatalogError, match="unsupported model_role"):
         CatalogService._validate_model_role("thing", "scad", "thing.scad", "unknown")
