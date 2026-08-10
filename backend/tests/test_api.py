@@ -39,6 +39,72 @@ def test_catalog_contract():
     assert "categories" in response.json()
 
 
+def test_catalog_hides_empty_containers_but_keeps_populated_descendants(tmp_path):
+    local = CatalogService(
+        index_url="unused",
+        index_ref="main",
+        cache_dir=tmp_path / "cache",
+        index_dir=tmp_path / "index",
+    )
+    parent = Package(
+        id="empty-container",
+        path="//pub/std/metric",
+        name="metric",
+        description="Empty navigation container",
+        source_url="https://example.test/PUB.git",
+        category="std",
+    )
+    child = Package(
+        id="populated-child",
+        path="//pub/std/metric/standoffs",
+        name="standoffs",
+        description="Metric threaded standoffs",
+        source_url="https://example.test/PUB.git",
+        category="std",
+    )
+    local._packages = {parent.id: parent, child.id: child}
+    local._objects["standoff-ff"] = CatalogObject(
+        id="standoff-ff",
+        package_id=child.id,
+        package_path=child.path,
+        name="female-female",
+        kind="part",
+        description="Female-female threaded standoff",
+        source_type="scad",
+        source_path="female-female.scad",
+        source_url=child.source_url,
+        semantic_path="std/metric/standoffs:female-female",
+    )
+
+    payload = local.catalog()
+    package_ids = {
+        package["id"]
+        for category in payload["categories"]
+        for package in category["packages"]
+    }
+    assert package_ids == {child.id}
+    assert payload["package_count"] == 1
+    assert local.search("empty navigation") == []
+    assert local.package_detail(parent.id)["objects"] == []
+
+
+def test_direct_empty_package_page_is_404(monkeypatch):
+    package = Package(
+        id="empty-package-page",
+        path="//pub/std/metric/empty",
+        name="empty",
+        description="No catalog objects",
+        source_url="https://example.test/PUB.git",
+    )
+    service._packages[package.id] = package
+    monkeypatch.setattr(service, "load_package", lambda _: {})
+    try:
+        response = client.get(f"/api/v1/packages/{package.id}")
+        assert response.status_code == 404
+    finally:
+        service._packages.pop(package.id, None)
+
+
 def test_missing_object_is_404():
     response = client.get("/api/v1/objects/not-a-real-object")
     assert response.status_code == 404
@@ -129,44 +195,6 @@ def test_basic_sketch_has_generated_preview_without_fake_source(tmp_path):
     preview = local.preview(item.id)
     scene = trimesh.load(preview, force="scene")
     assert scene.extents.tolist() == pytest.approx([1.0, 1.0, 0.08], abs=0.01)
-
-
-def test_shared_cadquery_slot_gets_capsule_preview(tmp_path):
-    local = CatalogService(
-        index_url="unused",
-        index_ref="main",
-        cache_dir=tmp_path / "cache",
-        index_dir=tmp_path / "index",
-    )
-    source = tmp_path / "_slotted.py"
-    source.write_text("# shared slot source\n", encoding="utf-8")
-    spec = {
-        "type": "cadquery",
-        "path": "_slotted.py",
-        "parameters": {
-            "diameter": {"type": "float", "default": 1.0},
-            "length": {"type": "float", "default": 1.5},
-        },
-    }
-    item = CatalogObject(
-        id="m1-slot-1.5",
-        package_id="metric-m",
-        package_path="//pub/std/metric/m",
-        name="m1-slotted-1.5",
-        kind="sketch",
-        description="Metric capsule slot",
-        source_type="cadquery",
-        source_path="_slotted.py",
-        source_url="https://example.test/PUB.git",
-        semantic_path="std/metric/m:m1-slotted-1.5",
-        spec_json=json.dumps(spec),
-    )
-    local._objects[item.id] = item
-    local._object_roots[item.id] = tmp_path
-
-    preview = local.preview(item.id)
-    scene = trimesh.load(preview, force="scene")
-    assert scene.extents.tolist() == pytest.approx([1.5, 1.0, 0.08], abs=0.01)
 
 
 def test_scad_configuration_is_exposed_without_leaking_the_full_spec(tmp_path):

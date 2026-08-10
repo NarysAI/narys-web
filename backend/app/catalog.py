@@ -86,15 +86,6 @@ SKETCH_PREVIEW_THICKNESS = 0.08
 SKETCH_PREVIEW_COLOR = (110, 231, 183, 255)
 
 
-def _parameter_default(value: Any, fallback: float) -> float:
-    if isinstance(value, dict):
-        value = value.get("default", fallback)
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return fallback
-
-
 def _shape_value(value: Any, key: str, fallback: float = 0.0) -> float:
     if isinstance(value, dict):
         value = value.get(key, fallback)
@@ -160,28 +151,6 @@ def _basic_sketch_mesh(spec: dict[str, Any]) -> trimesh.Trimesh:
         (x + half_x, y + half_y),
         (x - half_x, y + half_y),
     ])
-
-
-def _slot_sketch_mesh(spec: dict[str, Any]) -> trimesh.Trimesh:
-    parameters = spec.get("parameters") or {}
-    diameter = max(_parameter_default(parameters.get("diameter"), 1.0), 0.001)
-    length = max(_parameter_default(parameters.get("length"), diameter), diameter)
-    radius = diameter / 2.0
-    straight = length - diameter
-    if straight <= 1e-9:
-        points = [
-            (radius * math.cos(angle), radius * math.sin(angle))
-            for angle in (2.0 * math.pi * index / 64 for index in range(64))
-        ]
-    else:
-        points = []
-        for index in range(33):
-            angle = -math.pi / 2.0 + math.pi * index / 32.0
-            points.append((straight / 2.0 + radius * math.cos(angle), radius * math.sin(angle)))
-        for index in range(33):
-            angle = math.pi / 2.0 + math.pi * index / 32.0
-            points.append((-straight / 2.0 + radius * math.cos(angle), radius * math.sin(angle)))
-    return _convex_profile_mesh(points)
 
 
 def _coerce_parameter(name: str, declaration: dict[str, Any], value: Any) -> bool | int | float | str:
@@ -922,8 +891,11 @@ class CatalogService:
 
     def catalog(self, include_private: bool = False) -> dict[str, Any]:
         categories: dict[str, list[dict[str, Any]]] = {}
+        populated_package_ids = {item.package_id for item in self.objects}
         for package in self.packages:
             if self._is_private_path(package.path) and not include_private:
+                continue
+            if package.entry_type != "project" and package.id not in populated_package_ids:
                 continue
             categories.setdefault(package.category, []).append(self._package_payload(package))
         visible_objects = [item for item in self.objects if include_private or not self._is_private_path(item.package_path)]
@@ -938,8 +910,11 @@ class CatalogService:
     def search(self, query: str, include_private: bool = False) -> list[dict[str, Any]]:
         needle = query.casefold().strip()
         values: list[dict[str, Any]] = []
+        populated_package_ids = {item.package_id for item in self.objects}
         for package in self.packages:
             if self._is_private_path(package.path) and not include_private:
+                continue
+            if package.entry_type != "project" and package.id not in populated_package_ids:
                 continue
             if needle in f"{package.name} {package.description} {package.path}".casefold():
                 values.append({"result_type": "package", **self._package_payload(package)})
@@ -1002,19 +977,14 @@ class CatalogService:
         self,
         item: CatalogObject,
         spec: dict[str, Any],
-        source: Path | None = None,
     ) -> Path:
         digest_builder = hashlib.sha256(item.spec_json.encode())
-        if source is not None:
-            digest_builder.update(source.read_bytes())
         digest = digest_builder.hexdigest()[:16]
         output = self.preview_dir / f"{item.id}-{digest}.glb"
         if output.exists():
             return output
         if item.source_type.casefold() == "basic":
             mesh = _basic_sketch_mesh(spec)
-        elif item.source_type.casefold() == "cadquery" and source is not None and source.name == "_slotted.py":
-            mesh = _slot_sketch_mesh(spec)
         else:
             raise CatalogError(f"No generated sketch preview is available for {item.source_type}")
         scene = trimesh.Scene()
@@ -1045,10 +1015,6 @@ class CatalogService:
         source = (root / item.source_path).resolve()
         if not source.is_relative_to(root.resolve()) or not source.exists():
             raise CatalogError(f"Source model is unavailable: {item.source_path}")
-        if item.kind == "sketch" and item.source_type.casefold() == "cadquery" and source.name == "_slotted.py":
-            if overrides:
-                raise CatalogError("This generated sketch does not support preview parameters")
-            return self._generated_sketch_preview(item, spec, source)
         if overrides and source.suffix.casefold() != ".scad":
             raise CatalogError("Preview parameters are currently supported for OpenSCAD objects")
         resolved_parameters = (

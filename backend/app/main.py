@@ -85,7 +85,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="NarysAI Catalog API", version="0.3.2", lifespan=lifespan)
+app = FastAPI(title="NarysAI Catalog API", version="0.3.3", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
@@ -118,7 +118,10 @@ def package(package_id: str, principal: Principal | None = Depends(optional_prin
     try:
         service.package_detail(package_id, include_private=principal is not None)
         service.load_package(package_id)
-        return service.package_detail(package_id, include_private=principal is not None)
+        detail = service.package_detail(package_id, include_private=principal is not None)
+        if detail["entry_type"] != "project" and not detail["objects"]:
+            raise KeyError(package_id)
+        return detail
     except KeyError as exc:
         raise HTTPException(404, "Package not found") from exc
     except CatalogError as exc:
