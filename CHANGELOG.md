@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.1] - 2026-08-10
+
+### Fixed
+
+- Generate thin GLB previews directly for source-free PartCAD `basic`
+  circle, square and rectangle sketches instead of requesting nonexistent
+  `.basic` files.
+- Render the shared metric CadQuery slot source as its dimensional capsule
+  profile using each sketch's declared diameter and overall length.
+- Keep object metadata and links visible when an unrelated 3D conversion
+  fails by containing viewer errors inside a dedicated fallback panel.
+
 ## [0.3.0] - 2026-08-10
 
 ### Added

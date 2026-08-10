@@ -96,6 +96,8 @@ main { max-width: 1500px; margin: 0 auto; padding: 36px 44px 80px; }
 .detail-layout { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(320px, .65fr); border: 1px solid var(--line); }
 .viewer { position: relative; min-height: 620px; background: #101916; }
 .viewer-hint { position: absolute; bottom: 16px; left: 18px; padding: 7px 10px; background: rgba(8,15,13,.75); color: #71857e; font: 9px DM Mono; }
+.viewer-error { display: grid; place-content: center; gap: 10px; padding: 40px; text-align: center; color: #d8fff0; }
+.viewer-error span { color: #8fa39c; font-size: 13px; }
 .detail-panel { position: relative; padding: 42px 34px; border-left: 1px solid var(--line); }
 .detail-panel .type-pill { position: static; display: inline-block; }
 .detail-panel h1 { margin: 24px 0 12px; font-size: 34px; letter-spacing: -.04em; }
