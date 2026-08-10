@@ -7,6 +7,13 @@ pointer while their editable history remains in a standalone Git repository.
 Private standalone repositories are registered through the private
 `NarysAI/indra` overlay.
 
+## Platform ports
+
+- `http://localhost:3100` is the test platform used for preview and acceptance checks.
+- `http://localhost:3000` is the production platform port.
+
+Never treat a successful check on port `3100` as proof that production is available; production health must be verified separately on port `3000` and through the public HTTPS domain.
+
 ## Start on Windows
 
 1. Install Docker Desktop and enable Docker Compose.
