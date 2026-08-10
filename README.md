@@ -64,8 +64,95 @@ parts:
 ```
 
 The role and source format are enforced by the backend. Electronic, purchased,
-and other real-world components use SCAD only. Printable/manufacturable custom
-parts use FreeCAD FCStd only; STL and STEP are generated derivatives.
+and other real-world components may use SCAD, STL, or STEP. Printable and
+manufacturable custom parts continue to use FreeCAD FCStd as their editable
+master.
+
+### Model representations
+
+One exact catalog object may publish several representations without creating
+separate product links. SCAD and STL describe the exterior envelope. STEP
+describes interior structure; each STEP component name must contain its exact
+catalog identifier in the form `narys:<kind>/<semantic_path>` and every such
+reference must resolve to an indexed object.
+
+```yaml
+narys:
+  representations:
+    schema_version: 1
+    files:
+      - format: scad
+        path: h30-enclosed.scad
+        geometry_scope: exterior
+        primary: true
+      - format: stl
+        path: h30-enclosed.stl
+        geometry_scope: exterior
+      - format: step
+        path: h30-enclosed.step
+        geometry_scope: interior
+        components:
+          - kind: part
+            semantic_path: electronics/modules/wheeltec-h30:h30-pcb
+            label: H30 PCB
+```
+
+The corresponding STEP product/component name contains
+`narys:part/electronics/modules/wheeltec-h30:h30-pcb`. The catalog validates
+the token, exposes exact component links, and offers every representation from
+the same variant page.
+
+### Product families and exact variants
+
+Use `narys.product` schema version 1 when several exact catalog objects belong
+to one product family. A modification remains a distinct object with its own
+PartCAD path and link; it does not reuse a generic family URL.
+
+```yaml
+parts:
+  h30-pcb:
+    type: scad
+    path: h30-pcb.scad
+    model_role: electronic_component
+    narys:
+      product:
+        schema_version: 1
+        family_id: wheeltec-h30
+        family_name: WHEELTEC H30
+        variant_id: h30-pcb
+        variant_name: H30 PCB
+        variant_kind: base
+        revision: "1.0"
+
+  h30-enclosed:
+    type: scad
+    path: h30-enclosed.scad
+    model_role: electronic_component
+    narys:
+      product:
+        schema_version: 1
+        family_id: wheeltec-h30
+        family_name: WHEELTEC H30
+        variant_id: h30-enclosed
+        variant_name: H30 Enclosed
+        variant_kind: enclosed
+        revision: "1.0"
+        base_variant:
+          kind: part
+          semantic_path: electronics/modules/wheeltec-h30:h30-pcb
+          label: H30 PCB
+        components:
+          - kind: part
+            semantic_path: electronics/modules/wheeltec-h30:h30-pcb
+            label: H30 PCB
+            quantity: 1
+            role: electronics
+```
+
+`aliases` may list previous `{kind, semantic_path}` identities. Alias requests
+return the canonical object and the frontend replaces the legacy URL with the
+exact variant route. Revisions describe changes to one variant; they do not
+replace the family/variant relationship.
 
 Then add an import below the matching folder in [`NarysAI/narys-index`](https://github.com/NarysAI/narys-index):
 

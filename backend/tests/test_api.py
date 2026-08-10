@@ -154,6 +154,48 @@ def test_object_can_be_resolved_by_partcad_path():
         service._objects.pop(item.id, None)
 
 
+def test_product_variant_metadata_and_compatibility_alias():
+    pcb = CatalogObject(
+        id="h30-pcb",
+        package_id="wheeltec-h30",
+        package_path="//pub/electronics/modules/wheeltec-h30",
+        name="h30-pcb",
+        kind="part",
+        description="Bare WHEELTEC H30 PCB",
+        source_type="scad",
+        source_path="h30-pcb.scad",
+        source_url="https://github.com/NarysAI/PUB",
+        semantic_path="electronics/modules/wheeltec-h30:h30-pcb",
+        spec_json=json.dumps({
+            "narys": {"product": {
+                "schema_version": 1,
+                "family_id": "wheeltec-h30",
+                "family_name": "WHEELTEC H30",
+                "variant_id": "h30-pcb",
+                "variant_name": "H30 PCB",
+                "variant_kind": "base",
+                "revision": "1.0",
+                "aliases": [{
+                    "kind": "part",
+                    "semantic_path": "electronics/modules/wheeltec-h30wp:wheeltec-h30wp",
+                }],
+            }}
+        }),
+    )
+    service._objects[pcb.id] = pcb
+    try:
+        response = client.get(
+            "/api/v1/by-path/part/electronics/modules/wheeltec-h30wp:wheeltec-h30wp"
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["semantic_path"] == "electronics/modules/wheeltec-h30:h30-pcb"
+        assert payload["product_family"] == {"id": "wheeltec-h30", "name": "WHEELTEC H30"}
+        assert payload["product_variant"]["name"] == "H30 PCB"
+    finally:
+        service._objects.pop(pcb.id, None)
+
+
 def test_jinja_partcad_config_supports_math_constants(tmp_path):
     config = tmp_path / "partcad.yaml"
     config.write_text("parts:\n  item:\n    desc: '{{ SQRT_2 }}'\n", encoding="utf-8")
@@ -161,10 +203,90 @@ def test_jinja_partcad_config_supports_math_constants(tmp_path):
     assert data["parts"]["item"]["desc"].startswith("1.414")
 
 
-def test_electronic_component_requires_scad():
+def test_electronic_component_accepts_catalog_cad_formats():
     CatalogService._validate_model_role("camera", "scad", "camera.scad", "electronic_component")
-    with pytest.raises(CatalogError, match="requires exactly one .scad"):
+    CatalogService._validate_model_role("camera", "stl", "camera.stl", "electronic_component")
+    CatalogService._validate_model_role("camera", "step", "camera.step", "electronic_component")
+    with pytest.raises(CatalogError, match="matching SCAD, STL, or STEP"):
         CatalogService._validate_model_role("camera", "freecad", "camera.FCStd", "electronic_component")
+
+
+def test_step_representation_requires_named_catalog_component(tmp_path):
+    identifier = "narys:part/electronics/modules/wheeltec-h30:h30-pcb"
+    (tmp_path / "outside.scad").write_text("cube(1);", encoding="utf-8")
+    (tmp_path / "inside.step").write_text(
+        f"ISO-10303-21; PRODUCT('{identifier}','',()); ENDSEC; END-ISO-10303-21;",
+        encoding="ascii",
+    )
+    spec = {
+        "path": "outside.scad",
+        "narys": {"representations": {
+            "schema_version": 1,
+            "files": [
+                {"format": "scad", "path": "outside.scad", "geometry_scope": "exterior", "primary": True},
+                {
+                    "format": "step",
+                    "path": "inside.step",
+                    "geometry_scope": "interior",
+                    "components": [{
+                        "kind": "part",
+                        "semantic_path": "electronics/modules/wheeltec-h30:h30-pcb",
+                    }],
+                },
+            ],
+        }},
+    }
+    CatalogService._validate_representations("h30-enclosed", tmp_path, spec)
+    (tmp_path / "inside.step").write_text("ISO-10303-21; END-ISO-10303-21;", encoding="ascii")
+    with pytest.raises(CatalogError, match="STEP component name must contain"):
+        CatalogService._validate_representations("h30-enclosed", tmp_path, spec)
+
+
+def test_step_component_reference_must_exist_in_catalog(tmp_path):
+    local = CatalogService(
+        index_url="unused",
+        index_ref="main",
+        cache_dir=tmp_path / "cache",
+        index_dir=tmp_path / "index",
+    )
+    package = Package(
+        id="wheeltec-h30",
+        path="//pub/electronics/modules/wheeltec-h30",
+        name="wheeltec-h30",
+        description="H30",
+        source_url="https://example.test/PUB.git",
+    )
+    item = CatalogObject(
+        id="h30-enclosed",
+        package_id=package.id,
+        package_path=package.path,
+        name="h30-enclosed",
+        kind="part",
+        description="H30 Enclosed",
+        source_type="scad",
+        source_path="h30-enclosed.scad",
+        source_url=package.source_url,
+        semantic_path="electronics/modules/wheeltec-h30:h30-enclosed",
+        spec_json=json.dumps({
+            "narys": {"representations": {
+                "schema_version": 1,
+                "files": [{
+                    "format": "step",
+                    "path": "h30-enclosed.step",
+                    "geometry_scope": "interior",
+                    "components": [{
+                        "kind": "part",
+                        "semantic_path": "electronics/modules/wheeltec-h30:h30-pcb",
+                    }],
+                }],
+            }},
+        }),
+    )
+    local._packages[package.id] = package
+    local._objects[item.id] = item
+
+    assert local._validate_representation_links() == 1
+    assert package.status == "error"
 
 
 def test_printable_part_requires_freecad_master():

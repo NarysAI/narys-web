@@ -52,11 +52,37 @@ const standoff = {
   ],
   default_parameter_preset: 'm3',
 }
+const h30Enclosed = {
+  id: 'h30-enclosed', package_id: 'wheeltec-h30', package_path: '//pub/electronics/modules/wheeltec-h30',
+  name: 'h30-enclosed', kind: 'part', description: 'WHEELTEC H30 in metal housing',
+  source_type: 'scad', source_path: 'h30-enclosed.scad', source_url: '',
+  semantic_path: 'electronics/modules/wheeltec-h30:h30-enclosed', visibility: 'public',
+  product_family: { id: 'wheeltec-h30', name: 'WHEELTEC H30' },
+  product_variant: { id: 'h30-enclosed', name: 'H30 Enclosed', kind: 'enclosed', revision: '1.0' },
+  base_variant: { kind: 'part', semantic_path: 'electronics/modules/wheeltec-h30:h30-pcb', label: 'H30 PCB' },
+  components: [
+    { kind: 'part', semantic_path: 'electronics/modules/wheeltec-h30:h30-pcb', label: 'H30 PCB', quantity: 1, role: 'electronics', modeled: true },
+    { label: 'Metal enclosure', quantity: 1, role: 'housing', modeled: true },
+    { label: 'M3 cover screws', quantity: 2, role: 'fastener', modeled: true },
+  ],
+  representations: [
+    { format: 'scad', path: 'h30-enclosed.scad', geometry_scope: 'exterior', label: 'SCAD', primary: true, components: [] },
+    {
+      format: 'step', path: 'h30-enclosed.step', geometry_scope: 'interior', label: 'Detailed STEP', primary: false,
+      components: [{
+        kind: 'part', semantic_path: 'electronics/modules/wheeltec-h30:h30-pcb', label: 'H30 PCB',
+        identifier: 'narys:part/electronics/modules/wheeltec-h30:h30-pcb',
+      }],
+    },
+  ],
+}
 
 vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
   const value = String(input)
   const payload = value.includes('std/metric/standoffs')
     ? standoff
+    : value.includes('wheeltec-h30:h30-enclosed')
+      ? h30Enclosed
     : value.includes('/by-path/')
       ? battery
       : value.includes('/packages/case-project')
@@ -77,11 +103,31 @@ test('opens an object with a public PartCAD-compatible path', async () => {
   render(<Router hook={hook}><App /></Router>)
   expect(await screen.findByRole('heading', { name: 'battery-7_5' })).toBeInTheDocument()
   expect(screen.getByText('electrical/battery/ego:battery-7_5')).toBeInTheDocument()
-  expect(screen.getByText('Electronic component · AI SCAD')).toBeInTheDocument()
+  expect(screen.getByText('Electronic component · catalog CAD')).toBeInTheDocument()
   expect(screen.getByRole('link', { name: /Відкрити файл у PUB/ })).toHaveAttribute(
     'href', 'https://github.com/NarysAI/PUB/blob/main/electrical/battery/ego/battery-7_5.step',
   )
   expect(screen.getByRole('link', { name: /Пакет у NarysAI/ })).toHaveAttribute('href', '/repository/package/ego')
+})
+
+test('shows an exact product variant, base model, and BOM', async () => {
+  const { hook } = memoryLocation({ path: '/repository/part/electronics/modules/wheeltec-h30:h30-enclosed' })
+  render(<Router hook={hook}><App /></Router>)
+  expect(await screen.findByRole('heading', { name: 'H30 Enclosed' })).toBeInTheDocument()
+  expect(screen.getByText('WHEELTEC H30')).toBeInTheDocument()
+  expect(screen.getByText('v1.0')).toBeInTheDocument()
+  expect(screen.getAllByRole('link', { name: 'H30 PCB' })[0]).toHaveAttribute(
+    'href', '/repository/part/electronics/modules/wheeltec-h30:h30-pcb',
+  )
+  expect(screen.getByText('Metal enclosure')).toBeInTheDocument()
+  expect(screen.getByText('M3 cover screws')).toBeInTheDocument()
+  expect(screen.getByText('Зовнішня форма')).toBeInTheDocument()
+  expect(screen.getByText('Внутрішня структура')).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: 'Завантажити STEP' })).toHaveAttribute(
+    'href', '/api/v1/objects/h30-enclosed/representations/step/source',
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Показати у 3D' }))
+  expect(screen.getByRole('button', { name: 'Відкрито у 3D' })).toBeInTheDocument()
 })
 
 test('groups child packages under their manufacturer package', async () => {

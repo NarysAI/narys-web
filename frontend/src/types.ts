@@ -63,6 +63,44 @@ export type CatalogObject = {
     parameters: Record<string, number | boolean | string>
   }>
   default_parameter_preset?: string
+  product_family?: {
+    id: string
+    name: string
+  }
+  product_variant?: {
+    id: string
+    name: string
+    kind: string
+    revision: string
+  }
+  base_variant?: ProductObjectReference
+  components?: ProductComponent[]
+  compatibility_aliases?: ProductObjectReference[]
+  representations?: ModelRepresentation[]
+}
+
+export type ProductObjectReference = {
+  kind: 'part' | 'assembly' | 'sketch'
+  semantic_path: string
+  label: string
+}
+
+export type ProductComponent = {
+  label: string
+  quantity: number | string
+  role: string
+  modeled: boolean
+  kind?: 'part' | 'assembly' | 'sketch'
+  semantic_path?: string
+}
+
+export type ModelRepresentation = {
+  format: 'scad' | 'stl' | 'step'
+  path: string
+  geometry_scope: 'exterior' | 'interior'
+  label: string
+  primary: boolean
+  components: Array<ProductObjectReference & { identifier: string }>
 }
 
 export type Principal = { key_id: string; name: string; role: 'user' | 'admin' }

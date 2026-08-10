@@ -31,6 +31,14 @@ SCAD_MATERIAL_PATTERN = re.compile(
     re.MULTILINE,
 )
 SCAD_PARAMETER_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+STEP_PRODUCT_PATTERN = re.compile(
+    rb"\bPRODUCT\s*\(\s*'((?:''|[^'])*)'\s*,\s*'((?:''|[^'])*)'",
+    re.IGNORECASE,
+)
+
+
+def step_product_has_identifier(content: bytes, identifier: bytes) -> bool:
+    return any(identifier in product_id or identifier in name for product_id, name in STEP_PRODUCT_PATTERN.findall(content))
 
 
 def scad_materials(source: Path) -> list[tuple[str, tuple[int, int, int, int]]]:
@@ -348,9 +356,13 @@ class CatalogService:
         item_payload = asdict(item)
         item_payload.pop("spec_json", None)
         configuration = self._object_configuration(item)
+        product = self._object_product(item)
+        representations = self._object_representations(item)
         return {
             **item_payload,
             **configuration,
+            **product,
+            "representations": representations,
             "namespace": "//private" if private else "//pub",
             "visibility": "private" if private else "public",
             "repository": "indra" if private else "git" if project else "PUB",
@@ -364,6 +376,135 @@ class CatalogService:
             "size": size,
             "license_status": "verified" if item.license else "unverified",
         }
+
+    @staticmethod
+    def _object_representations(item: CatalogObject) -> list[dict[str, Any]]:
+        try:
+            spec = json.loads(item.spec_json or "{}")
+        except json.JSONDecodeError:
+            spec = {}
+        narys = spec.get("narys") if isinstance(spec.get("narys"), dict) else {}
+        metadata = narys.get("representations") if isinstance(narys.get("representations"), dict) else {}
+        raw_files = metadata.get("files", []) if metadata.get("schema_version") == 1 else []
+        files = raw_files if isinstance(raw_files, list) else []
+
+        values: list[dict[str, Any]] = []
+        for raw in files:
+            if not isinstance(raw, dict):
+                continue
+            source_format = str(raw.get("format", "")).casefold()
+            path = str(raw.get("path", "")).strip()
+            if source_format not in {"scad", "stl", "step"} or not path:
+                continue
+            components: list[dict[str, str]] = []
+            for component in raw.get("components", []) if isinstance(raw.get("components"), list) else []:
+                if not isinstance(component, dict):
+                    continue
+                kind = str(component.get("kind", "part")).casefold().removesuffix("s")
+                semantic_path = str(component.get("semantic_path", "")).strip()
+                if kind not in {"part", "assembly", "sketch"} or not semantic_path:
+                    continue
+                components.append({
+                    "kind": kind,
+                    "semantic_path": semantic_path,
+                    "label": str(component.get("label", semantic_path.rsplit(":", 1)[-1])),
+                    "identifier": f"narys:{kind}/{semantic_path}",
+                })
+            values.append({
+                "format": source_format,
+                "path": path,
+                "geometry_scope": "interior" if source_format == "step" else "exterior",
+                "label": str(raw.get("label", source_format.upper())),
+                "primary": bool(raw.get("primary", False)),
+                "components": components,
+            })
+
+        if item.source_path and not any(value["path"] == item.source_path for value in values):
+            source_format = item.source_type.casefold()
+            if source_format == "stp":
+                source_format = "step"
+            if source_format in {"scad", "stl", "step"}:
+                values.insert(0, {
+                    "format": source_format,
+                    "path": item.source_path,
+                    "geometry_scope": "interior" if source_format == "step" else "exterior",
+                    "label": source_format.upper(),
+                    "primary": True,
+                    "components": [],
+                })
+        if values and not any(value["primary"] for value in values):
+            values[0]["primary"] = True
+        return values
+
+    @staticmethod
+    def _object_product(item: CatalogObject) -> dict[str, Any]:
+        try:
+            spec = json.loads(item.spec_json or "{}")
+        except json.JSONDecodeError:
+            return {}
+        narys = spec.get("narys") if isinstance(spec.get("narys"), dict) else {}
+        product = narys.get("product") if isinstance(narys.get("product"), dict) else None
+        if not product or product.get("schema_version") != 1:
+            return {}
+
+        family_id = str(product.get("family_id", "")).strip()
+        family_name = str(product.get("family_name", "")).strip()
+        variant_id = str(product.get("variant_id", "")).strip()
+        variant_name = str(product.get("variant_name", "")).strip()
+        if not all((family_id, family_name, variant_id, variant_name)):
+            return {}
+
+        def reference(raw: Any) -> dict[str, str] | None:
+            if not isinstance(raw, dict):
+                return None
+            kind = str(raw.get("kind", "part")).casefold().removesuffix("s")
+            semantic_path = str(raw.get("semantic_path", "")).strip()
+            if kind not in {"part", "assembly", "sketch"} or not semantic_path:
+                return None
+            return {
+                "kind": kind,
+                "semantic_path": semantic_path,
+                "label": str(raw.get("label", semantic_path.rsplit(":", 1)[-1])),
+            }
+
+        base_variant = reference(product.get("base_variant"))
+        components: list[dict[str, Any]] = []
+        for raw in product.get("components", []) if isinstance(product.get("components"), list) else []:
+            if not isinstance(raw, dict) or not str(raw.get("label", "")).strip():
+                continue
+            item_reference = reference(raw)
+            component: dict[str, Any] = {
+                "label": str(raw["label"]).strip(),
+                "quantity": raw.get("quantity", 1),
+                "role": str(raw.get("role", "component")),
+                "modeled": bool(raw.get("modeled", item_reference is not None)),
+            }
+            if item_reference:
+                component.update({
+                    "kind": item_reference["kind"],
+                    "semantic_path": item_reference["semantic_path"],
+                })
+            components.append(component)
+
+        aliases = [
+            alias
+            for raw in product.get("aliases", []) if isinstance(product.get("aliases"), list)
+            if (alias := reference(raw)) is not None
+        ]
+        payload: dict[str, Any] = {
+            "product_family": {"id": family_id, "name": family_name},
+            "product_variant": {
+                "id": variant_id,
+                "name": variant_name,
+                "kind": str(product.get("variant_kind", "variant")),
+                "revision": str(product.get("revision", "1.0")),
+            },
+            "components": components,
+            "compatibility_aliases": aliases,
+        }
+        if base_variant:
+            payload["base_variant"] = base_variant
+        return payload
 
     @staticmethod
     def _object_configuration(item: CatalogObject) -> dict[str, Any]:
@@ -488,8 +629,26 @@ class CatalogService:
             except Exception:
                 package.status = "error"
                 errors += 1
+        errors += self._validate_representation_links()
         self._save_database()
         return {"packages": len(self._packages), "objects": len(self._objects), "errors": errors}
+
+    def _validate_representation_links(self) -> int:
+        known = {(item.kind, item.semantic_path) for item in self._objects.values()}
+        invalid_packages: set[str] = set()
+        for item in self._objects.values():
+            for representation in self._object_representations(item):
+                if representation["format"] != "step":
+                    continue
+                if any(
+                    (component["kind"], component["semantic_path"]) not in known
+                    for component in representation["components"]
+                ):
+                    invalid_packages.add(item.package_id)
+        for package_id in invalid_packages:
+            if package := self._packages.get(package_id):
+                package.status = "error"
+        return len(invalid_packages)
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path)
@@ -848,6 +1007,7 @@ class CatalogService:
                 )
                 model_role = str(spec["model_role"]) if spec.get("model_role") else None
                 self._validate_model_role(name, source_type, str(source_path) if source_path else None, model_role)
+                self._validate_representations(name, root, spec)
                 object_id = _token(f"{package.id}|{kind}|{name}")
                 self._objects[object_id] = CatalogObject(
                     id=object_id,
@@ -873,14 +1033,74 @@ class CatalogService:
             return
         suffix = Path(source_path or "").suffix
         if model_role == "electronic_component":
-            if source_type.casefold() != "scad" or suffix != ".scad":
-                raise CatalogError(f"{name}: electronic_component requires exactly one .scad source")
+            allowed = {
+                "scad": {".scad"},
+                "stl": {".stl"},
+                "step": {".step", ".stp"},
+            }
+            if suffix.casefold() not in allowed.get(source_type.casefold(), set()):
+                raise CatalogError(f"{name}: electronic_component requires a matching SCAD, STL, or STEP source")
             return
         if model_role == "printable_part":
             if source_type.casefold() != "freecad" or suffix != ".FCStd":
                 raise CatalogError(f"{name}: printable_part requires exactly one .FCStd source with type: freecad")
             return
         raise CatalogError(f"{name}: unsupported model_role: {model_role}")
+
+    @staticmethod
+    def _validate_representations(name: str, root: Path, spec: dict[str, Any]) -> None:
+        narys = spec.get("narys") if isinstance(spec.get("narys"), dict) else {}
+        metadata = narys.get("representations")
+        if metadata is None:
+            return
+        if not isinstance(metadata, dict) or metadata.get("schema_version") != 1:
+            raise CatalogError(f"{name}: narys.representations requires schema_version 1")
+        files = metadata.get("files")
+        if not isinstance(files, list) or not files:
+            raise CatalogError(f"{name}: narys.representations.files must not be empty")
+        seen_formats: set[str] = set()
+        primary_count = 0
+        suffixes = {"scad": {".scad"}, "stl": {".stl"}, "step": {".step", ".stp"}}
+        for raw in files:
+            if not isinstance(raw, dict):
+                raise CatalogError(f"{name}: every representation must be a mapping")
+            source_format = str(raw.get("format", "")).casefold()
+            if source_format not in suffixes or source_format in seen_formats:
+                raise CatalogError(f"{name}: representations require unique SCAD, STL, or STEP formats")
+            seen_formats.add(source_format)
+            path_value = str(raw.get("path", "")).strip()
+            source = (root / path_value).resolve()
+            if not path_value or not source.is_relative_to(root.resolve()) or not source.is_file():
+                raise CatalogError(f"{name}: representation file is unavailable: {path_value}")
+            if source.suffix.casefold() not in suffixes[source_format]:
+                raise CatalogError(f"{name}: {path_value} does not match format {source_format}")
+            expected_scope = "interior" if source_format == "step" else "exterior"
+            if raw.get("geometry_scope") != expected_scope:
+                raise CatalogError(f"{name}: {source_format} requires geometry_scope: {expected_scope}")
+            primary_count += int(bool(raw.get("primary", False)))
+            if source_format != "step":
+                continue
+            components = raw.get("components")
+            if not isinstance(components, list) or not components:
+                raise CatalogError(f"{name}: STEP representation requires catalog components")
+            step_content = source.read_bytes()
+            for component in components:
+                if not isinstance(component, dict):
+                    raise CatalogError(f"{name}: STEP component must be a mapping")
+                kind = str(component.get("kind", "part")).casefold().removesuffix("s")
+                semantic_path = str(component.get("semantic_path", "")).strip()
+                if kind not in {"part", "assembly", "sketch"} or not semantic_path:
+                    raise CatalogError(f"{name}: STEP component requires an exact catalog reference")
+                identifier = f"narys:{kind}/{semantic_path}".encode("ascii")
+                if not step_product_has_identifier(step_content, identifier):
+                    raise CatalogError(
+                        f"{name}: STEP component name must contain {identifier.decode('ascii')}"
+                    )
+        if primary_count != 1:
+            raise CatalogError(f"{name}: representations require exactly one primary file")
+        primary = next(raw for raw in files if isinstance(raw, dict) and raw.get("primary"))
+        if str(primary.get("path", "")) != str(spec.get("path", "")):
+            raise CatalogError(f"{name}: primary representation must match the PartCAD path")
 
     def package_detail(self, package_id: str, include_private: bool = False) -> dict[str, Any]:
         package = self._packages[package_id]
@@ -921,7 +1141,9 @@ class CatalogService:
         for item in self.objects:
             if self._is_private_path(item.package_path) and not include_private:
                 continue
-            if needle in f"{item.name} {item.description} {item.package_path}".casefold():
+            product = self._object_product(item)
+            product_terms = json.dumps(product, ensure_ascii=False)
+            if needle in f"{item.name} {item.description} {item.package_path} {product_terms}".casefold():
                 values.append({"result_type": "object", **self._object_payload(item)})
         return values[:100]
 
@@ -940,6 +1162,16 @@ class CatalogService:
                 if self._is_private_path(item.package_path) and not include_private:
                     break
                 return self._object_payload(item)
+        for item in self._objects.values():
+            product = self._object_product(item)
+            aliases = product.get("compatibility_aliases", [])
+            if any(
+                alias.get("kind") == normalized_kind and alias.get("semantic_path") == semantic_path
+                for alias in aliases
+            ):
+                if self._is_private_path(item.package_path) and not include_private:
+                    break
+                return self._object_payload(item)
         raise KeyError(f"{kind}/{semantic_path}")
 
     def source_file(self, object_id: str) -> Path:
@@ -952,6 +1184,24 @@ class CatalogService:
         source = (root / item.source_path).resolve()
         if not source.is_relative_to(root.resolve()) or not source.is_file():
             raise CatalogError(f"Source model is unavailable: {item.source_path}")
+        return source
+
+    def representation_file(self, object_id: str, source_format: str) -> Path:
+        item = self._objects.get(object_id)
+        if not item:
+            raise KeyError(object_id)
+        representation = next(
+            (value for value in self._object_representations(item) if value["format"] == source_format.casefold()),
+            None,
+        )
+        if not representation:
+            raise KeyError(f"{object_id}/{source_format}")
+        root = self._object_roots.get(object_id)
+        if not root:
+            raise CatalogError("The representation root is unavailable")
+        source = (root / representation["path"]).resolve()
+        if not source.is_relative_to(root.resolve()) or not source.is_file():
+            raise CatalogError(f"Representation is unavailable: {representation['path']}")
         return source
 
     def package_archive(self, package_id: str) -> Path:
@@ -992,11 +1242,21 @@ class CatalogService:
         scene.export(output, file_type="glb")
         return output
 
-    def preview(self, object_id: str, overrides: dict[str, str] | None = None) -> Path:
+    def preview(
+        self,
+        object_id: str,
+        overrides: dict[str, str] | None = None,
+        source_format: str | None = None,
+    ) -> Path:
         with self._preview_lock:
-            return self._preview_unlocked(object_id, overrides)
+            return self._preview_unlocked(object_id, overrides, source_format)
 
-    def _preview_unlocked(self, object_id: str, overrides: dict[str, str] | None = None) -> Path:
+    def _preview_unlocked(
+        self,
+        object_id: str,
+        overrides: dict[str, str] | None = None,
+        source_format: str | None = None,
+    ) -> Path:
         item = self._objects.get(object_id)
         if not item:
             raise KeyError(object_id)
@@ -1010,9 +1270,14 @@ class CatalogService:
                 raise CatalogError("This generated sketch does not support preview parameters")
             return self._generated_sketch_preview(item, spec)
         root = self._object_roots.get(object_id)
-        if not root or not item.source_path:
+        selected_path = (
+            self.representation_file(object_id, source_format)
+            if source_format
+            else (root / item.source_path).resolve() if root and item.source_path else None
+        )
+        if not root or selected_path is None:
             raise CatalogError("This object does not expose a directly convertible source file")
-        source = (root / item.source_path).resolve()
+        source = selected_path
         if not source.is_relative_to(root.resolve()) or not source.exists():
             raise CatalogError(f"Source model is unavailable: {item.source_path}")
         if overrides and source.suffix.casefold() != ".scad":
@@ -1079,7 +1344,7 @@ class CatalogService:
                     )
                     if result.returncode:
                         raise CatalogError(result.stderr.strip() or "OpenSCAD conversion failed")
-            elif source.suffix.casefold() == ".fcstd":
+            elif source.suffix.casefold() in {".fcstd", ".step", ".stp"}:
                 render_source = self.preview_dir / f"{object_id}-{digest}.stl"
                 if not render_source.exists():
                     result = subprocess.run(
