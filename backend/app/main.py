@@ -38,6 +38,9 @@ service = CatalogService(
     private_repo_dir=private_snapshot,
     public_repo_dir=public_snapshot,
     index_dir=Path(os.environ["NARYS_INDEX_DIR"]) if os.getenv("NARYS_INDEX_DIR") else None,
+    github_token_file=Path(os.environ["NARYS_GITHUB_TOKEN_FILE"])
+    if os.getenv("NARYS_GITHUB_TOKEN_FILE")
+    else None,
 )
 auth = AuthService(service.database_path)
 
@@ -82,7 +85,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="NarysAI Catalog API", version="0.1.1", lifespan=lifespan)
+app = FastAPI(title="NarysAI Catalog API", version="0.3.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
@@ -113,6 +116,7 @@ def search(q: str = Query(min_length=1, max_length=120), principal: Principal | 
 @app.get("/api/v1/packages/{package_id}")
 def package(package_id: str, principal: Principal | None = Depends(optional_principal)):
     try:
+        service.package_detail(package_id, include_private=principal is not None)
         service.load_package(package_id)
         return service.package_detail(package_id, include_private=principal is not None)
     except KeyError as exc:

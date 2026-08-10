@@ -149,3 +149,116 @@ def test_private_catalog_is_hidden_and_ticket_is_one_use(tmp_path):
         service._packages.pop(package.id, None)
         service._objects.pop(item.id, None)
         service._object_roots.pop(item.id, None)
+
+
+def test_project_metadata_is_exposed_without_changing_package_routes(tmp_path):
+    repository = tmp_path / "project"
+    repository.mkdir()
+    (repository / "partcad.yaml").write_text(
+        "name: //pub/fpv/case-holder\n"
+        "desc: FPV project\n"
+        "narys_project:\n"
+        "  schema_version: 1\n"
+        "  kind: project\n"
+        "  access: public\n"
+        "  canonical_repo: https://github.com/NarysAI/Case_holder\n"
+        "  default_branch: main\n"
+        "  contribution_url: https://github.com/NarysAI/Case_holder/blob/main/CONTRIBUTING.md\n"
+        "  issues_url: https://github.com/NarysAI/Case_holder/issues\n"
+        "  current_drawing: drawing-v1.0.0\n"
+        "  category: FPV\n",
+        encoding="utf-8",
+    )
+    package = Package(
+        id="case-project",
+        path="//pub/fpv/case-holder",
+        name="Case_holder",
+        description="FPV project",
+        source_url=repository.as_uri(),
+        category="fpv",
+    )
+    service._packages[package.id] = package
+    try:
+        payload = service.load_package(package.id)
+        detail = service.package_detail(package.id)
+        assert payload["entry_type"] == "project"
+        assert detail["canonical_repo_url"] == "https://github.com/NarysAI/Case_holder"
+        assert detail["current_drawing"] == "drawing-v1.0.0"
+        assert detail["objects"] == []
+    finally:
+        service._packages.pop(package.id, None)
+
+
+def test_private_index_accepts_standalone_git_projects_without_guest_leak(tmp_path):
+    private = tmp_path / "indra"
+    (private / "index").mkdir(parents=True)
+    (private / "index" / "partcad.yaml").write_text(
+        "desc: private overlay\n"
+        "import:\n"
+        "  comp-ivins-case-4:\n"
+        "    type: git\n"
+        "    url: https://github.com/NarysAI/COMP-IVINS-CASE-4.git\n"
+        "    catalog_path: projects/comp-ivins-case-4\n"
+        "    revision: main\n"
+        "    narys_project:\n"
+        "      kind: project\n"
+        "      access: private\n"
+        "      canonical_repo: https://github.com/NarysAI/COMP-IVINS-CASE-4\n",
+        encoding="utf-8",
+    )
+    local = CatalogService(
+        index_url="unused",
+        index_ref="main",
+        cache_dir=tmp_path / "cache",
+        private_repo_dir=private,
+        index_dir=tmp_path / "index",
+    )
+    (tmp_path / "index").mkdir()
+    local._read_private_index()
+    assert local.catalog(include_private=False)["package_count"] == 0
+    private_catalog = local.catalog(include_private=True)
+    assert private_catalog["package_count"] == 1
+    indexed = private_catalog["categories"][0]["packages"][0]
+    assert indexed["entry_type"] == "project"
+    assert indexed["visibility"] == "private"
+    assert indexed["canonical_repo_url"].endswith("COMP-IVINS-CASE-4")
+
+
+def test_git_askpass_script_never_contains_the_private_token(tmp_path):
+    token_file = tmp_path / "token"
+    token_file.write_text("secret-token-value\n", encoding="utf-8")
+    local = CatalogService(
+        index_url="unused",
+        index_ref="main",
+        cache_dir=tmp_path / "cache",
+        index_dir=tmp_path / "index",
+        github_token_file=token_file,
+    )
+    environment = local._git_environment()
+    assert environment["GIT_PASSWORD"] == "secret-token-value"
+    assert "secret-token-value" not in local.git_askpass.read_text(encoding="utf-8")
+
+
+def test_guest_cannot_trigger_a_private_repository_clone(monkeypatch):
+    package = Package(
+        id="private-project-guard",
+        path="//private/projects/guarded",
+        name="guarded",
+        description="Private project",
+        source_url="https://github.com/NarysAI/guarded.git",
+        access="private",
+        entry_type="project",
+    )
+    service._packages[package.id] = package
+    called = False
+
+    def guarded_load(_: str):
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr(service, "load_package", guarded_load)
+    try:
+        assert client.get(f"/api/v1/packages/{package.id}").status_code == 404
+        assert called is False
+    finally:
+        service._packages.pop(package.id, None)

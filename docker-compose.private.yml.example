@@ -1,0 +1,11 @@
+services:
+  api:
+    environment:
+      NARYS_GITHUB_TOKEN_FILE: /run/secrets/narys_github_token
+    secrets:
+      - narys_github_token
+
+secrets:
+  narys_github_token:
+    file: ${NARYS_GITHUB_TOKEN_PATH}
+
