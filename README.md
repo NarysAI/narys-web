@@ -64,7 +64,7 @@ parts:
 ```
 
 The role and source format are enforced by the backend. Electronic, purchased,
-and other real-world components may use SCAD, STL, or STEP. Printable and
+and other real-world electronic or mechanical components may use SCAD, STL, or STEP. Printable and
 manufacturable custom parts continue to use FreeCAD FCStd as their editable
 master.
 

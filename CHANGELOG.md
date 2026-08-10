@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.4.1] - 2026-08-10
+
+### Added
+
+- Mechanical component roles so internal assemblies can link housings, covers,
+  fasteners, and vibration isolators as exact catalog records.
+
+### Fixed
+
+- Present corrected H30 Enclosed revision 1.1 composition and preserve exact
+  revision selection when preview assets are cached.
+- Use the CAD Z axis as up in the 3D viewer so enclosure ports, covers, and
+  mounting hardware appear in their intended orientation.
+
 ## [0.4.0] - 2026-08-10
 
 ### Added

@@ -735,6 +735,7 @@ function ObjectDetail({ item }: { item: CatalogObject }) {
           privateObject={item.visibility === "private"}
           parameters={activeRepresentation === "scad" || !activeRepresentation ? appliedParameters : {}}
           representationFormat={activeRepresentation}
+          revisionKey={item.product_variant?.revision}
         />
         <article className="detail-panel">
           <span className="type-pill">
@@ -906,7 +907,7 @@ function ObjectDetail({ item }: { item: CatalogObject }) {
           <dl>
             <div>
               <dt>Model role</dt>
-              <dd>{item.model_role === "electronic_component" ? "Electronic component · catalog CAD" : item.model_role === "printable_part" ? "Printable part · FreeCAD master" : "Legacy · migration pending"}</dd>
+              <dd>{item.model_role === "electronic_component" ? "Electronic component · catalog CAD" : item.model_role === "mechanical_component" ? "Mechanical component · catalog CAD" : item.model_role === "printable_part" ? "Printable part · FreeCAD master" : "Legacy · migration pending"}</dd>
             </div>
             <div>
               <dt>Формат</dt>

@@ -44,7 +44,7 @@ export type CatalogObject = {
   checksum?: string
   size?: number
   license_status?: string
-  model_role?: 'electronic_component' | 'printable_part'
+  model_role?: 'electronic_component' | 'mechanical_component' | 'printable_part'
   entry_type?: 'package' | 'project'
   canonical_repo_url?: string
   default_branch?: string

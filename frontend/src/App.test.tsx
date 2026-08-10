@@ -58,12 +58,14 @@ const h30Enclosed = {
   source_type: 'scad', source_path: 'h30-enclosed.scad', source_url: '',
   semantic_path: 'electronics/modules/wheeltec-h30:h30-enclosed', visibility: 'public',
   product_family: { id: 'wheeltec-h30', name: 'WHEELTEC H30' },
-  product_variant: { id: 'h30-enclosed', name: 'H30 Enclosed', kind: 'enclosed', revision: '1.0' },
+  product_variant: { id: 'h30-enclosed', name: 'H30 Enclosed', kind: 'enclosed', revision: '1.1' },
   base_variant: { kind: 'part', semantic_path: 'electronics/modules/wheeltec-h30:h30-pcb', label: 'H30 PCB' },
   components: [
     { kind: 'part', semantic_path: 'electronics/modules/wheeltec-h30:h30-pcb', label: 'H30 PCB', quantity: 1, role: 'electronics', modeled: true },
-    { label: 'Metal enclosure', quantity: 1, role: 'housing', modeled: true },
-    { label: 'M3 cover screws', quantity: 2, role: 'fastener', modeled: true },
+    { kind: 'part', semantic_path: 'electronics/modules/wheeltec-h30:h30-main-housing', label: 'H30 Main Housing', quantity: 1, role: 'housing', modeled: true },
+    { kind: 'part', semantic_path: 'electronics/modules/wheeltec-h30:h30-cover', label: 'H30 Cover', quantity: 1, role: 'cover', modeled: true },
+    { kind: 'part', semantic_path: 'electronics/modules/wheeltec-h30:h30-cover-screw', label: 'H30 Cover Screw', quantity: 4, role: 'fastener', modeled: true },
+    { kind: 'part', semantic_path: 'electronics/modules/wheeltec-h30:h30-plastic-damper-screw', label: 'H30 Plastic Damper Screw', quantity: 4, role: 'vibration_isolator', modeled: true },
   ],
   representations: [
     { format: 'scad', path: 'h30-enclosed.scad', geometry_scope: 'exterior', label: 'SCAD', primary: true, components: [] },
@@ -115,12 +117,14 @@ test('shows an exact product variant, base model, and BOM', async () => {
   render(<Router hook={hook}><App /></Router>)
   expect(await screen.findByRole('heading', { name: 'H30 Enclosed' })).toBeInTheDocument()
   expect(screen.getByText('WHEELTEC H30')).toBeInTheDocument()
-  expect(screen.getByText('v1.0')).toBeInTheDocument()
+  expect(screen.getByText('v1.1')).toBeInTheDocument()
   expect(screen.getAllByRole('link', { name: 'H30 PCB' })[0]).toHaveAttribute(
     'href', '/repository/part/electronics/modules/wheeltec-h30:h30-pcb',
   )
-  expect(screen.getByText('Metal enclosure')).toBeInTheDocument()
-  expect(screen.getByText('M3 cover screws')).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: 'H30 Main Housing' })).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: 'H30 Cover' })).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: 'H30 Cover Screw' })).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: 'H30 Plastic Damper Screw' })).toBeInTheDocument()
   expect(screen.getByText('Зовнішня форма')).toBeInTheDocument()
   expect(screen.getByText('Внутрішня структура')).toBeInTheDocument()
   expect(screen.getByRole('link', { name: 'Завантажити STEP' })).toHaveAttribute(
