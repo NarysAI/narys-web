@@ -1,0 +1,4 @@
+interface:
+  display_name: "AI CAD Engineering"
+  short_description: "Reliable CAD and product qualification workflow"
+  default_prompt: "Use $ai-skills-cad-engineering to implement this native CAD change and validate the correct drawing or product release track."
